@@ -217,8 +217,7 @@ def load_tree_from_file(
                 )
             # remove input and output values from nodes
             tree = remove_input_output_values(tree=response.tree)
-
-    tree.name = file_name
+            tree.path = request.tree.path
 
     response.success = True
     response.tree = tree
@@ -757,9 +756,10 @@ class TreeManager:
             prefix = ""
         else:
             prefix += "."
+            tree.name = prefix[:-1]
+
         # we should have a tree message with all the info we need now
         # prefix all the node names, if prefix is not the empty string
-        tree.name = prefix[:-1]
         for node in tree.nodes:
             node.name = prefix + node.name
             node.child_names = [prefix + child_name for child_name in node.child_names]
