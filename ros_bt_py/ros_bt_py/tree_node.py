@@ -104,7 +104,7 @@ class TreeNode(Node):
             "~/tree",
             callback_group=self.publisher_callback_group,
             qos_profile=QoSProfile(
-                reliability=QoSReliabilityPolicy.BEST_EFFORT,
+                reliability=QoSReliabilityPolicy.RELIABLE,
                 durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
                 history=QoSHistoryPolicy.KEEP_LAST,
                 depth=1,
