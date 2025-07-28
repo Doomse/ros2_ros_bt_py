@@ -1927,6 +1927,7 @@ class TreeManager:
                     if other_type == our_type:
                         incompatible = False
                     elif inspect.isclass(other_type):
+                        # TODO Assuming all class types to be ROS messages seems unsafe 
                         deserialized_options[key] = (
                             message_converter.convert_dictionary_to_ros_message(
                                 other_type, deserialized_options[key]
@@ -2500,7 +2501,7 @@ class TreeManager:
                         "Failed to undo successful wiring after error. "
                         "Tree is in undefined state!"
                     )
-                    self.state = TreeState.ERROR
+                    #self.state = TreeState.ERROR
                     return response
             return response
         else:

@@ -27,6 +27,7 @@
 # POSSIBILITY OF SUCH DAMAGE.
 
 from abc import ABC, abstractmethod
+from typing import Generic, TypeVar
 import rosidl_runtime_py
 import rosidl_runtime_py.utilities
 
@@ -43,10 +44,12 @@ DICT_ROS = "ros"  # Loads dict with message fields
 ROS_TYPE_FULL = "full"  # Includes _Request, _Response, _Goal, ...
 
 
-class TypeWrapper(object):
+# Update typing syntax when compatibility is up to 3.12
+T = TypeVar('T', bound=type)
+class TypeWrapper(Generic[T]):
     """This allows to wrap any builtin type to supply additional information."""
 
-    def __init__(self, actual_type: type, info=""):
+    def __init__(self, actual_type: T, info=""):
         self.actual_type = actual_type
         # TODO Is this overwrite okay,
         #   otherwise remove code accessing __name__ on TypeWrapper | type

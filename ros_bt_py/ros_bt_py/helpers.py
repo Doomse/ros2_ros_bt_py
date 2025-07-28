@@ -128,12 +128,12 @@ def get_default_value(data_type: Any, ros: bool = False) -> Any:
         return {}
 
 
-def json_encode(data: Any) -> Optional[str]:
+def json_encode(data: Any) -> str:
     """Wrap the call to jsonpickle.encode."""
-    return jsonpickle.encode(data)
+    return jsonpickle.encode(data)  #type: ignore
 
 
-def json_decode(data: str) -> Optional[Any]:
+def json_decode(data: str) -> Any:
     """Wrap the call to jsonpickle.decode."""
     return jsonpickle.decode(data)
 

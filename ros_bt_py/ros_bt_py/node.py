@@ -142,6 +142,7 @@ def define_bt_node(node_config: NodeConfig) -> Callable[[Type["Node"]], Type["No
                     rclpy.logging.get_logger(node_class.__name__).error(
                         f"Node config could not be extended: {config_extend_result.unwrap_err()}"
                     )
+                    return node_class
         node_class._node_config = node_config
 
         if inspect.isabstract(node_class):
@@ -388,7 +389,7 @@ class Node(object, metaclass=NodeMeta):
         # only should in very rare cases!)
         self.node_config = deepcopy(self._node_config)
 
-        self.options = NodeDataMap(name="options")
+        self.options = NodeDataMap(name="options")  # TODO Shouldn't this be static?
         register_result = self._register_node_data(
             source_map=self.node_config.options,
             target_map=self.options,
