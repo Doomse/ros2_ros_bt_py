@@ -54,6 +54,7 @@ def from_string(data_type, string_value, static=False) -> "NodeData":
 
 
 # Update typing syntax when compatibility is up to 3.12
+#   class NodeData[T: type](object):
 T = TypeVar('T', bound=type)
 class NodeData(Generic[T]):
     """
@@ -80,6 +81,7 @@ class NodeData(Generic[T]):
         # this also sets updated to True
         if initial_value is not None:
             self.set(initial_value)
+            # TODO Raise this appropriately
 
     def __repr__(self) -> str:
         return f"{self._value} ({self.data_type.__name__}) [{'#' if self.updated else ' '}]"
@@ -127,10 +129,7 @@ class NodeData(Generic[T]):
         if self._static and self.updated:
             return Err("Trying to overwrite data in static NodeData object")
 
-        if isinstance(self.data_type, TypeWrapper):
-            real_data_type = self.data_type.actual_type
-        else:
-            real_data_type = self.data_type
+        real_data_type = self.get_type()
 
         if not isinstance(new_value, real_data_type) and new_value is not None:
             # Convert str based params to the FilePath or Ros...Name format.
@@ -183,6 +182,12 @@ class NodeData(Generic[T]):
         # if not self.updated:
         #     rospy.loginfo('Reading non-updated value!')
         return self._value
+    
+    def get_type(self) -> type:
+        if isinstance(self.data_type, TypeWrapper):
+            return self.data_type.actual_type
+        else:
+            return self.data_type
 
     def get_serialized(self) -> str:
         if self._serialized_value is None:
@@ -374,11 +379,11 @@ class NodeDataMap(object):
             return Err(f"No member named {key}")
         return Ok(self._map[key].get_serialized_type())
 
-    def get_type(self, key: str) -> Result[type | TypeWrapper, str]:
+    def get_type(self, key: str) -> Result[type, str]:
         """Return the type of the NodeData object at `key`."""
         if key not in self._map:
             return Err(f"No member named {key}")
-        return Ok(self._map[key].data_type)
+        return Ok(self._map[key].get_type())
 
     def compatible(self, key: str, new_val: Any) -> Result[bool, str]:
         """Check if `new_val` can be put into the :class:`NodeData` at `key`."""
@@ -407,7 +412,9 @@ class NodeDataMap(object):
     def __setitem__(self, key: str, value: Any) -> None:
         if key not in self._map:
             raise KeyError(f"No member named {key}")
-        self._map[key].set(value)
+        set_value_result = self._map[key].set(value)
+        if set_value_result.is_err():
+            raise TypeError(set_value_result.unwrap_err())
 
     def __iter__(self) -> Iterator[str]:
         return self._map.__iter__()

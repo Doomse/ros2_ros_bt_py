@@ -376,7 +376,7 @@ class Node(object, metaclass=NodeMeta):
         self.children: List[Node] = []
 
         self.subscriptions: list[Wiring] = []
-        self.subscribers: list[tuple[Wiring, Callable[[type], None], type]] = []
+        self.subscribers: list[tuple[Wiring, Callable[[Any], Result[None, str]], type]] = []
 
         self._ros_node: Optional[ROSNode] = ros_node
         self.debug_manager: Optional[DebugManager] = debug_manager
@@ -543,9 +543,9 @@ class Node(object, metaclass=NodeMeta):
                     return Err(
                         f"Trying to tick a node ({self.name}) with an unset input ({input_name})!"
                     )
-        return Ok(self.inputs.handle_subscriptions())
+        return self.inputs.handle_subscriptions()
 
-    def _handle_outputs(self) -> None:
+    def _handle_outputs(self) -> Result[None, str]:
         """
         Execute the callbacks registered by :meth:`NodeDataMap.subscribe`: .
 
@@ -553,7 +553,7 @@ class Node(object, metaclass=NodeMeta):
         the :meth:`NodeDataMap.reset_updated` is called in
         :meth:`tick`)
         """
-        self.outputs.handle_subscriptions()
+        return self.outputs.handle_subscriptions()
 
     def tick(self) -> Result[BTNodeState, BehaviorTreeException]:
         """
@@ -586,7 +586,11 @@ class Node(object, metaclass=NodeMeta):
                 self.logwarn(msg)
                 self.state = BTNodeState.BROKEN
                 return Err(BehaviorTreeException(msg))
-            self.options.handle_subscriptions()
+            
+            handle_options_result = self.options.handle_subscriptions()
+            if handle_options_result.is_err():
+                self.state = BTNodeState.BROKEN
+                return Err(BehaviorTreeException(handle_options_result.err()))
 
             # Outputs are updated in the tick. To catch that, we need to reset here.
             self.outputs.reset_updated()
@@ -623,7 +627,10 @@ class Node(object, metaclass=NodeMeta):
             if valid_state_result.is_err():
                 return Err(valid_state_result.unwrap_err())
 
-            self._handle_outputs()
+            handle_outputs_result = self._handle_outputs()
+            if handle_outputs_result.is_err():
+                self.state = BTNodeState.BROKEN
+                return Err(BehaviorTreeException(handle_outputs_result.err()))
 
             return Ok(self.state)
 
@@ -924,7 +931,7 @@ class Node(object, metaclass=NodeMeta):
     @typechecked
     def add_child(
         self, child: "Node", at_index: Optional[int] = None
-    ) -> Result["Node", BehaviorTreeException | TreeTopologyError]:
+    ) -> Result[None, BehaviorTreeException | TreeTopologyError]:
         """Add a child to this node at the given index."""
         if (
             self.node_config.max_children is not None
@@ -951,8 +958,7 @@ class Node(object, metaclass=NodeMeta):
         self.children[at_index:at_index] = [child]
         child.parent = self
 
-        # return self to allow chaining of addChild calls
-        return Ok(self)
+        return Ok(None)
 
     @typechecked
     def remove_child(self, child_name: str) -> Result["Node", KeyError]:
@@ -1068,21 +1074,23 @@ class Node(object, metaclass=NodeMeta):
                     NodeConfigError(f"Duplicate {target_map.name} data name: {key}")
                 )
 
-            if data_type.option_key not in self.options:
+            ref_updated_result = self.options.is_updated(data_type.option_key)
+            if ref_updated_result.is_err():
                 return Err(
                     NodeConfigError(
                         f'OptionRef for {target_map.name} key "{key}" references invalid '
-                        f'option key "{data_type.option_key}"'
+                        f'option key "{data_type.option_key}": {ref_updated_result.unwrap_err()}'
                     )
                 )
-            if not self.options.is_updated(data_type.option_key):
+            if not ref_updated_result.unwrap():
                 return Err(
                     NodeConfigError(
                         f'OptionRef for {target_map.name} key "{key}" references unwritten '
                         f'option key "{data_type.option_key}"'
                     )
                 )
-            if not isinstance(self.options[data_type.option_key], type):
+            option_ref_type = self.options[data_type.option_key]
+            if not isinstance(option_ref_type, type):
                 return Err(
                     NodeConfigError(
                         f'OptionRef for {target_map.name} key "{key}" references option key '
@@ -1090,7 +1098,7 @@ class Node(object, metaclass=NodeMeta):
                     )
                 )
             add_result = target_map.add(
-                key, NodeData(data_type=self.options[data_type.option_key])
+                key, NodeData(data_type=option_ref_type)
             )
             if add_result.is_err():
                 return Err(NodeConfigError(add_result.unwrap_err()))
@@ -1530,8 +1538,8 @@ class Node(object, metaclass=NodeMeta):
     def _subscribe(
         self,
         wiring: Wiring,
-        new_cb: Callable[[Type], None],
-        expected_type: Type,
+        new_cb: Callable[[Any], Result[None, str]],
+        expected_type: type,
     ) -> Result[None, BehaviorTreeException]:
         """
         Subscribe to a piece of Nodedata this node has.
@@ -1593,11 +1601,15 @@ class Node(object, metaclass=NodeMeta):
                 )
             )
 
-        if not issubclass(source_map.get_type(wiring.source.data_key), expected_type):
+        get_type_result = source_map.get_type(wiring.source.data_key)
+        if get_type_result.is_err():
+            return Err(BehaviorTreeException(get_type_result.unwrap_err()))
+        data_type = get_type_result.unwrap()
+        if not issubclass(data_type, expected_type):
             return Err(
                 BehaviorTreeException(
                     f"Type of {self.name}.{wiring.source.data_kind}[{wiring.source.data_key}] "
-                    f"({source_map.get_type(wiring.source.data_key).__name__}) "
+                    f"({data_type.__name__}) "
                     "is not compatible with Type of "
                     f"{wiring.target.node_name}."
                     f"{wiring.target.data_kind}"
@@ -1606,11 +1618,13 @@ class Node(object, metaclass=NodeMeta):
                 )
             )
 
-        source_map.subscribe(
+        subscribe_result = source_map.subscribe(
             wiring.source.data_key,
             new_cb,
             f"{wiring.target.node_name}.{wiring.target.data_kind}[{wiring.target.data_key}]",
         )
+        if subscribe_result.is_err():
+            return Err(BehaviorTreeException(subscribe_result.unwrap_err()))
         self.subscribers.append((deepcopy(wiring), new_cb, expected_type))
         return Ok(None)
 
@@ -1676,19 +1690,27 @@ class Node(object, metaclass=NodeMeta):
         if target_map_result.is_err():
             return Err(BehaviorTreeException(str(target_map_result.unwrap_err())))
         target_map = target_map_result.unwrap()
+        
+        get_callback_result = target_map.get_callback(wiring.target.data_key)
+        get_type_result = target_map.get_type(wiring.target.data_key)
 
-        if wiring.target.data_key not in target_map:
-            return Err(
-                BehaviorTreeException(
-                    f"Target key {self.name}."
-                    f"{wiring.target.data_kind}[{wiring.target.data_key}] does not exist!"
-                )
-            )
+        if get_callback_result.is_err():
+            return Err(BehaviorTreeException(
+                "Failed to retrieve callback for "
+                f"{self.name}.{wiring.target.data_kind}[{wiring.target.data_key}]"
+                f"Reason: {get_callback_result.unwrap_err()}"
+            ))
+        if get_type_result.is_err():
+            return Err(BehaviorTreeException(
+                "Failed to retrieve type for "
+                f"{self.name}.{wiring.target.data_kind}[{wiring.target.data_key}]"
+                f"Reason: {get_type_result.unwrap_err()}"
+            ))
 
         subscribe_result = source_node._subscribe(
             wiring,
-            target_map.get_callback(wiring.target.data_key),
-            target_map.get_type(wiring.target.data_key),
+            get_callback_result.unwrap(),
+            get_type_result.unwrap(),
         )
         if subscribe_result.is_err():
             return subscribe_result
@@ -1731,7 +1753,9 @@ class Node(object, metaclass=NodeMeta):
 
         for sub_wiring, callback, _ in self.subscribers:
             if wiring.target == sub_wiring.target:
-                source_map.unsubscribe(wiring.source.data_key, callback)
+                unsubscribe_result = source_map.unsubscribe(wiring.source.data_key, callback)
+                if unsubscribe_result.is_err():
+                    return Err(BehaviorTreeException(unsubscribe_result.err()))
         # remove subscriber data from list
         self.subscribers = [
             sub for sub in self.subscribers if sub[0].target != wiring.target

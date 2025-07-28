@@ -45,6 +45,7 @@ ROS_TYPE_FULL = "full"  # Includes _Request, _Response, _Goal, ...
 
 
 # Update typing syntax when compatibility is up to 3.12
+#   class TypeWrapper[T: type](object):
 T = TypeVar('T', bound=type)
 class TypeWrapper(Generic[T]):
     """This allows to wrap any builtin type to supply additional information."""
