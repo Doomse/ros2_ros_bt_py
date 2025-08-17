@@ -62,9 +62,26 @@ class BTNodeState(abc.ABC):
     # These casts are for the purpose of mypy/pylance type checking,
     #   which ignore abc `register` subclasses
 
-
 BTNodeState.register(str)
 # Register `str` as subclass to `BTNodeState` for the purpose of typeguard
+
+class TickReturnState(abc.ABC):
+    RUNNING = cast("TickReturnState", NodeState.RUNNING)
+    SUCCEEDED = cast("TickReturnState", NodeState.SUCCEEDED)
+    FAILED = cast("TickReturnState", NodeState.FAILED)
+
+TickReturnState.register(str)
+BTNodeState.register(TickReturnState)
+# Register `str` as subclass to `BTNodeState` for the purpose of typeguard
+
+class UntickReturnState(abc.ABC):
+    IDLE = cast("UntickReturnState", NodeState.IDLE)
+    PAUSED = cast("UntickReturnState", NodeState.PAUSED)
+
+UntickReturnState.register(str)
+BTNodeState.register(UntickReturnState)
+# Register `str` as subclass to `BTNodeState` for the purpose of typeguard
+
 
 
 class MathUnaryOperator(object):

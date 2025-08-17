@@ -30,7 +30,7 @@ from result import Result, Ok, Err
 from builtin_interfaces.msg import Time
 
 from ros_bt_py.exceptions import BehaviorTreeException
-from ros_bt_py.helpers import BTNodeState
+from ros_bt_py.helpers import TickReturnState, UntickReturnState
 from ros_bt_py.node import define_bt_node, Leaf
 from ros_bt_py.node_config import NodeConfig
 
@@ -47,20 +47,20 @@ from ros_bt_py.node_config import NodeConfig
 class GetTimeNow(Leaf):
     """Output current time stamp."""
 
-    def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_setup(self) -> Result[None, BehaviorTreeException]:
         # TODO Should we check here if we actually have a ros node?
-        return Ok(BTNodeState.IDLE)
+        return Ok(None)
 
-    def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_tick(self) -> Result[TickReturnState, BehaviorTreeException]:
         current_time = self.ros_node.get_clock().now()
         self.outputs["current_time"] = current_time.to_msg()
-        return Ok(BTNodeState.SUCCEEDED)
+        return Ok(TickReturnState.SUCCEEDED)
 
-    def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.SHUTDOWN)
+    def _do_shutdown(self) -> Result[None, BehaviorTreeException]:
+        return Ok(None)
 
-    def _do_reset(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.IDLE)
+    def _do_reset(self) -> Result[None, BehaviorTreeException]:
+        return Ok(None)
 
-    def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.IDLE)
+    def _do_untick(self) -> Result[UntickReturnState, BehaviorTreeException]:
+        return Ok(UntickReturnState.IDLE)

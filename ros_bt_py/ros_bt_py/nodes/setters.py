@@ -31,7 +31,7 @@ from result import Result, Ok, Err
 
 from ros_bt_py.node import Leaf, define_bt_node
 from ros_bt_py.node_config import NodeConfig, OptionRef
-from ros_bt_py.helpers import rsetattr, BTNodeState
+from ros_bt_py.helpers import TickReturnState, UntickReturnState, rsetattr
 from ros_bt_py.exceptions import BehaviorTreeException
 
 
@@ -47,23 +47,23 @@ from ros_bt_py.exceptions import BehaviorTreeException
 class AppendListItem(Leaf):
     """Appends `item` to the end of `list`."""
 
-    def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.IDLE)
+    def _do_setup(self) -> Result[None, BehaviorTreeException]:
+        return Ok(None)
 
-    def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_tick(self) -> Result[TickReturnState, BehaviorTreeException]:
         if self.inputs.is_updated("list") or self.inputs.is_updated("value"):
             self.outputs["new_list"] = self.inputs["list"] + [self.inputs["value"]]
 
-        return Ok(BTNodeState.SUCCEEDED)
+        return Ok(TickReturnState.SUCCEEDED)
 
-    def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.SHUTDOWN)
+    def _do_shutdown(self) -> Result[None, BehaviorTreeException]:
+        return Ok(None)
 
-    def _do_reset(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.IDLE)
+    def _do_reset(self) -> Result[None, BehaviorTreeException]:
+        return Ok(None)
 
-    def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.IDLE)
+    def _do_untick(self) -> Result[UntickReturnState, BehaviorTreeException]:
+        return Ok(UntickReturnState.IDLE)
 
 
 @define_bt_node(
@@ -81,24 +81,24 @@ class AppendListItem(Leaf):
 class SetAttr(Leaf):
     """Set the attribute named `attr` in `object`."""
 
-    def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.IDLE)
+    def _do_setup(self) -> Result[None, BehaviorTreeException]:
+        return Ok(None)
 
-    def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_tick(self) -> Result[TickReturnState, BehaviorTreeException]:
         if self.inputs.is_updated("object") or self.inputs.is_updated("attr_value"):
             obj = deepcopy(self.inputs["object"])
             rsetattr(obj, self.options["attr_name"], self.inputs["attr_value"])
             self.outputs["new_object"] = obj
-        return Ok(BTNodeState.SUCCEEDED)
+        return Ok(TickReturnState.SUCCEEDED)
 
-    def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.SHUTDOWN)
+    def _do_shutdown(self) -> Result[None, BehaviorTreeException]:
+        return Ok(None)
 
-    def _do_reset(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.IDLE)
+    def _do_reset(self) -> Result[None, BehaviorTreeException]:
+        return Ok(None)
 
-    def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.IDLE)
+    def _do_untick(self) -> Result[UntickReturnState, BehaviorTreeException]:
+        return Ok(UntickReturnState.IDLE)
 
 
 @define_bt_node(
@@ -113,21 +113,21 @@ class SetAttr(Leaf):
 class SetDictItem(Leaf):
     """Set the attribute named `attr` in `object`."""
 
-    def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.IDLE)
+    def _do_setup(self) -> Result[None, BehaviorTreeException]:
+        return Ok(None)
 
-    def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_tick(self) -> Result[TickReturnState, BehaviorTreeException]:
         if self.inputs.is_updated("object") or self.inputs.is_updated("attr_value"):
             obj = deepcopy(self.inputs["object"])
             obj[self.options["attr_name"]] = self.inputs["attr_value"]
             self.outputs["new_object"] = obj
-        return Ok(BTNodeState.SUCCEEDED)
+        return Ok(TickReturnState.SUCCEEDED)
 
-    def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.SHUTDOWN)
+    def _do_shutdown(self) -> Result[None, BehaviorTreeException]:
+        return Ok(None)
 
-    def _do_reset(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.IDLE)
+    def _do_reset(self) -> Result[None, BehaviorTreeException]:
+        return Ok(None)
 
-    def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.IDLE)
+    def _do_untick(self) -> Result[UntickReturnState, BehaviorTreeException]:
+        return Ok(UntickReturnState.IDLE)

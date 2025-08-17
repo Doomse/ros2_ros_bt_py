@@ -40,7 +40,7 @@ from ros_bt_py.custom_types import RosActionName, RosActionType
 from ros_bt_py_interfaces.msg import UtilityBounds
 
 from ros_bt_py.exceptions import BehaviorTreeException
-from ros_bt_py.helpers import BTNodeState
+from ros_bt_py.helpers import TickReturnState, UntickReturnState
 from ros_bt_py.node import Leaf, define_bt_node
 from ros_bt_py.node_config import NodeConfig
 from rclpy.node import Node
@@ -172,7 +172,7 @@ class ActionForSetType(Leaf):
         self.outputs["OUTPUT_KEY"] = self._result  # .result
         return "TRUTHVALUE"
 
-    def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_setup(self) -> Result[None, BehaviorTreeException]:
         if not self.has_ros_node:
             error_msg = f"Node {self.name} does not have a reference to a ROS node!"
             self.logerr(error_msg)
@@ -220,7 +220,7 @@ class ActionForSetType(Leaf):
         self._last_goal_time: Optional[Time] = None
         self.set_output_none()
 
-        return Ok(BTNodeState.IDLE)
+        return Ok(None)
 
     def _feedback_cb(self, feedback) -> None:
         self.logdebug(f"Received feedback message: {feedback}")
@@ -229,10 +229,10 @@ class ActionForSetType(Leaf):
 
     def _do_tick_wait_for_action_complete(
         self,
-    ) -> Result[BTNodeState, BehaviorTreeException]:
+    ) -> Result[TickReturnState, BehaviorTreeException]:
         if self._running_goal_handle is None or self._running_goal_future is None:
             self._internal_state = ActionStates.FINISHED
-            return Ok(BTNodeState.BROKEN)
+            return Ok(TickReturnState.FAILED)
 
         if self._running_goal_future.done():
             self._result = self._running_goal_future.result()
@@ -244,12 +244,12 @@ class ActionForSetType(Leaf):
                 self._internal_state = ActionStates.FINISHED
 
                 self.logdebug("Action result is none, action call must have failed!")
-                return Ok(BTNodeState.FAILED)
+                return Ok(TickReturnState.FAILED)
 
             # returns failed except the set.ouput() method returns True
-            new_state = BTNodeState.FAILED
+            new_state = TickReturnState.FAILED
             if self.set_outputs():
-                new_state = BTNodeState.SUCCEEDED
+                new_state = TickReturnState.SUCCEEDED
             self._running_goal_handle = None
             self._running_goal_future = None
             self._result = None
@@ -267,7 +267,7 @@ class ActionForSetType(Leaf):
             self._internal_state = ActionStates.FINISHED
 
             self.logwarn("Action execution was cancelled by the remote server!")
-            return Ok(BTNodeState.FAILED)
+            return Ok(TickReturnState.FAILED)
         seconds_running = (
             self.ros_node.get_clock().now() - self._running_goal_start_time
         ).nanoseconds / 1e9
@@ -280,33 +280,33 @@ class ActionForSetType(Leaf):
             self._running_goal_future = None
 
             self._internal_state = ActionStates.REQUEST_GOAL_CANCELLATION
-            return Ok(BTNodeState.RUNNING)
+            return Ok(TickReturnState.RUNNING)
 
-        return Ok(BTNodeState.RUNNING)
+        return Ok(TickReturnState.RUNNING)
 
     def _do_tick_cancel_running_goal(
         self,
-    ) -> Result[BTNodeState, BehaviorTreeException]:
+    ) -> Result[TickReturnState, BehaviorTreeException]:
         if self._running_goal_handle is None:
             self.logwarn(
                 "Goal cancellation was requested, but there is no handle to the running goal!"
             )
             self._internal_state = ActionStates.FINISHED
-            return Ok(BTNodeState.BROKEN)
+            return Ok(TickReturnState.FAILED)
 
         self._cancel_goal_future = self._running_goal_handle.cancel_goal_async()
         self._internal_state = ActionStates.WAITING_FOR_GOAL_CANCELLATION
-        return Ok(BTNodeState.SUCCEEDED)
+        return Ok(TickReturnState.SUCCEEDED)
 
     def _do_tick_wait_for_cancel_complete(
         self,
-    ) -> Result[BTNodeState, BehaviorTreeException]:
+    ) -> Result[TickReturnState, BehaviorTreeException]:
         if self._cancel_goal_future is None:
             self.logwarn(
                 "Waiting for goal cancellation to complete, but the future is none!"
             )
             self._internal_state = ActionStates.FINISHED
-            return Ok(BTNodeState.BROKEN)
+            return Ok(TickReturnState.FAILED)
 
         if self._cancel_goal_future.done():
             self.logdebug("Successfully cancelled goal exectution!")
@@ -317,7 +317,7 @@ class ActionForSetType(Leaf):
             self._active_goal = None
 
             self._internal_state = ActionStates.FINISHED
-            return Ok(BTNodeState.SUCCEEDED)
+            return Ok(TickReturnState.SUCCEEDED)
         if self._cancel_goal_future.cancelled():
             self.logdebug("Goal cancellation was cancelled!")
 
@@ -327,10 +327,10 @@ class ActionForSetType(Leaf):
             self._active_goal = None
 
             self._internal_state = ActionStates.FINISHED
-            return Ok(BTNodeState.FAILED)
-        return Ok(BTNodeState.RUNNING)
+            return Ok(TickReturnState.FAILED)
+        return Ok(TickReturnState.RUNNING)
 
-    def _do_tick_send_new_goal(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_tick_send_new_goal(self) -> Result[TickReturnState, BehaviorTreeException]:
         """Tick to request the execution of a new goal on the action server."""
         self._new_goal_request_future = self._ac.send_goal_async(
             goal=self._input_goal, feedback_callback=self._feedback_cb
@@ -339,11 +339,11 @@ class ActionForSetType(Leaf):
         self._active_goal = self._input_goal
         self._internal_state = ActionStates.WAITING_FOR_GOAL_ACCEPTANCE
 
-        return Ok(BTNodeState.SUCCEEDED)
+        return Ok(TickReturnState.SUCCEEDED)
 
     def _do_tick_wait_for_new_goal_complete(
         self,
-    ) -> Result[BTNodeState, BehaviorTreeException]:
+    ) -> Result[TickReturnState, BehaviorTreeException]:
         """Tick to wait for the new goal to be accepted by the action server!."""
         if self._new_goal_request_future is None:
             self.logerr(
@@ -351,7 +351,7 @@ class ActionForSetType(Leaf):
                 "on the action server, but the future is none!"
             )
             self._internal_state = ActionStates.IDLE
-            return Ok(BTNodeState.BROKEN)
+            return Ok(TickReturnState.FAILED)
 
         if self._new_goal_request_future.done():
             self._running_goal_handle = self._new_goal_request_future.result()
@@ -360,13 +360,13 @@ class ActionForSetType(Leaf):
             if self._running_goal_handle is None:
                 self.logwarn("Action goal was rejeced by the server!")
                 self._internal_state = ActionStates.FINISHED
-                return Ok(BTNodeState.FAILED)
+                return Ok(TickReturnState.FAILED)
 
             self._running_goal_start_time = self.ros_node.get_clock().now()
             self._running_goal_future = self._running_goal_handle.get_result_async()
 
             self._internal_state = ActionStates.WAITING_FOR_ACTION_COMPLETE
-            return Ok(BTNodeState.SUCCEEDED)
+            return Ok(TickReturnState.SUCCEEDED)
 
         if self._new_goal_request_future.cancelled():
             self.logwarn("Request for a new goal was cancelled!")
@@ -375,29 +375,29 @@ class ActionForSetType(Leaf):
             self._active_goal = None
 
             self._internal_state = ActionStates.FINISHED
-            return Ok(BTNodeState.FAILED)
+            return Ok(TickReturnState.FAILED)
 
-        return Ok(BTNodeState.RUNNING)
+        return Ok(TickReturnState.RUNNING)
 
-    def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_tick(self) -> Result[TickReturnState, BehaviorTreeException]:
         if not self._action_available:
             if (
                 "fail_if_not_available" in self.options
                 and self.options["fail_if_not_available"]
             ):
-                return Ok(BTNodeState.FAILED)
+                return Ok(TickReturnState.FAILED)
 
         self.set_input()
         self.set_goal()
 
         if self._internal_state == ActionStates.IDLE:
             status = self._do_tick_send_new_goal()
-            if status.ok() not in [BTNodeState.SUCCEEDED]:
+            if status.ok() not in [TickReturnState.SUCCEEDED]:
                 return status
 
         if self._internal_state == ActionStates.WAITING_FOR_GOAL_ACCEPTANCE:
             status = self._do_tick_wait_for_new_goal_complete()
-            if status.ok() not in [BTNodeState.SUCCEEDED]:
+            if status.ok() not in [TickReturnState.SUCCEEDED]:
                 return status
 
         if self._internal_state == ActionStates.WAITING_FOR_ACTION_COMPLETE:
@@ -410,7 +410,7 @@ class ActionForSetType(Leaf):
         if self._internal_state == ActionStates.REQUEST_GOAL_CANCELLATION:
             status = self._do_tick_cancel_running_goal()
             # Check if goal cancel request was succssful!
-            if status.ok() not in [BTNodeState.SUCCEEDED]:
+            if status.ok() not in [TickReturnState.SUCCEEDED]:
                 return status
 
         if self._internal_state == ActionStates.WAITING_FOR_GOAL_CANCELLATION:
@@ -419,20 +419,24 @@ class ActionForSetType(Leaf):
         if self._internal_state == ActionStates.FINISHED:
             return self._do_tick_finished()
 
-        return Ok(BTNodeState.BROKEN)
+        return Err(BehaviorTreeException("Internal state broken"))
 
-    def _do_tick_finished(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_tick_finished(self) -> Result[TickReturnState, BehaviorTreeException]:
         if self._active_goal == self._input_goal:
-            return Ok(self._state)
+            if self._state == TickReturnState.SUCCEEDED:
+                return Ok(TickReturnState.SUCCEEDED)
+            if self._state == TickReturnState.FAILED:
+                return Ok(TickReturnState.FAILED)
+            return Err(BehaviorTreeException("Node is in improper state"))
         else:
             self._internal_state = ActionStates.IDLE
-            return Ok(BTNodeState.RUNNING)
+            return Ok(TickReturnState.RUNNING)
 
-    def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_untick(self) -> Result[UntickReturnState, BehaviorTreeException]:
         if self._internal_state == ActionStates.WAITING_FOR_ACTION_COMPLETE:
             cancel_result = self._do_tick_cancel_running_goal()
             if cancel_result.is_err():
-                return cancel_result
+                return Err(cancel_result.unwrap_err())
 
         self._last_goal_time = None
         self._running_goal_future = None
@@ -442,23 +446,25 @@ class ActionForSetType(Leaf):
         self._feedback = None
         self._internal_state = ActionStates.IDLE
 
-        return Ok(BTNodeState.IDLE)
+        return Ok(UntickReturnState.IDLE)
 
-    def _do_reset(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_reset(self) -> Result[None, BehaviorTreeException]:
         # same as untick...
         untick_result = self._do_untick()
         # but also clear the outputs
         self.outputs["feedback"] = None
         self.outputs["result"] = None
-        return untick_result
+        if untick_result.is_err():
+            return Err(untick_result.unwrap_err())
+        return Ok(None)
 
-    def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_shutdown(self) -> Result[None, BehaviorTreeException]:
         # nothing to do beyond what's done in reset
         reset_result = self._do_reset()
         self._action_available = False
         if reset_result.is_err():
             return reset_result
-        return Ok(BTNodeState.SHUTDOWN)
+        return Ok(None)
 
     def _do_calculate_utility(self) -> Result[UtilityBounds, BehaviorTreeException]:
         if not self.has_ros_node:
@@ -568,7 +574,7 @@ class Action(Leaf):
         if register_result.is_err():
             raise register_result.unwrap_err()
 
-    def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_setup(self) -> Result[None, BehaviorTreeException]:
         if not self.has_ros_node:
             error_msg = f"Node {self.name} does not have a reference to a ROS node!"
             self.logerr(error_msg)
@@ -619,7 +625,7 @@ class Action(Leaf):
         for k, v in self._feedback_type.get_fields_and_field_types().items():
             self.outputs["feedback_" + k] = None
 
-        return Ok(BTNodeState.IDLE)
+        return Ok(None)
 
     def _feedback_cb(self, feedback) -> None:
         self.logdebug(f"Received feedback message: {feedback}")
@@ -628,10 +634,10 @@ class Action(Leaf):
 
     def _do_tick_wait_for_action_complete(
         self,
-    ) -> Result[BTNodeState, BehaviorTreeException]:
+    ) -> Result[TickReturnState, BehaviorTreeException]:
         if self._running_goal_handle is None or self._running_goal_future is None:
             self._internal_state = ActionStates.FINISHED
-            return Ok(BTNodeState.BROKEN)
+            return Ok(TickReturnState.FAILED)
 
         if self._running_goal_future.done():
             self._result = self._running_goal_future.result()
@@ -643,16 +649,16 @@ class Action(Leaf):
                 self._internal_state = ActionStates.FINISHED
 
                 self.logdebug("Action result is none, action call must have failed!")
-                return Ok(BTNodeState.FAILED)
+                return Ok(TickReturnState.FAILED)
 
             # returns failed except the set.ouput() method returns True
-            new_state = BTNodeState.FAILED
+            new_state = TickReturnState.FAILED
 
             res = self._result.result
             for k, v in res.get_fields_and_field_types().items():
                 self.outputs["result_" + k] = getattr(res, k)
 
-            new_state = BTNodeState.SUCCEEDED
+            new_state = TickReturnState.SUCCEEDED
             self._running_goal_handle = None
             self._running_goal_future = None
             self._result = None
@@ -670,7 +676,7 @@ class Action(Leaf):
             self._internal_state = ActionStates.FINISHED
 
             self.logwarn("Action execution was cancelled by the remote server!")
-            return Ok(BTNodeState.FAILED)
+            return Ok(TickReturnState.FAILED)
         seconds_running = (
             self.ros_node.get_clock().now() - self._running_goal_start_time
         ).nanoseconds / 1e9
@@ -683,37 +689,37 @@ class Action(Leaf):
             self._running_goal_future = None
 
             self._internal_state = ActionStates.REQUEST_GOAL_CANCELLATION
-            return Ok(BTNodeState.RUNNING)
+            return Ok(TickReturnState.RUNNING)
         if self._feedback is not None:
             feed = self._feedback.feedback
             for k, v in feed.get_fields_and_field_types().items():
                 self.outputs["feedback_" + k] = getattr(feed, k)
 
-        return Ok(BTNodeState.RUNNING)
+        return Ok(TickReturnState.RUNNING)
 
     def _do_tick_cancel_running_goal(
         self,
-    ) -> Result[BTNodeState, BehaviorTreeException]:
+    ) -> Result[TickReturnState, BehaviorTreeException]:
         if self._running_goal_handle is None:
             self.logwarn(
                 "Goal cancellation was requested, but there is no handle to the running goal!"
             )
             self._internal_state = ActionStates.FINISHED
-            return Ok(BTNodeState.BROKEN)
+            return Ok(TickReturnState.FAILED)
 
         self._cancel_goal_future = self._running_goal_handle.cancel_goal_async()
         self._internal_state = ActionStates.WAITING_FOR_GOAL_CANCELLATION
-        return Ok(BTNodeState.SUCCEEDED)
+        return Ok(TickReturnState.SUCCEEDED)
 
     def _do_tick_wait_for_cancel_complete(
         self,
-    ) -> Result[BTNodeState, BehaviorTreeException]:
+    ) -> Result[TickReturnState, BehaviorTreeException]:
         if self._cancel_goal_future is None:
             self.logwarn(
                 "Waiting for goal cancellation to complete, but the future is none!"
             )
             self._internal_state = ActionStates.FINISHED
-            return Ok(BTNodeState.BROKEN)
+            return Ok(TickReturnState.FAILED)
 
         if self._cancel_goal_future.done():
             self.logdebug("Successfully cancelled goal exectution!")
@@ -724,7 +730,7 @@ class Action(Leaf):
             self._active_goal = None
 
             self._internal_state = ActionStates.FINISHED
-            return Ok(BTNodeState.SUCCEEDED)
+            return Ok(TickReturnState.SUCCEEDED)
         if self._cancel_goal_future.cancelled():
             self.logdebug("Goal cancellation was cancelled!")
 
@@ -734,14 +740,13 @@ class Action(Leaf):
             self._active_goal = None
 
             self._internal_state = ActionStates.FINISHED
-            return Ok(BTNodeState.FAILED)
-        return Ok(BTNodeState.RUNNING)
+            return Ok(TickReturnState.FAILED)
+        return Ok(TickReturnState.RUNNING)
 
-    def _do_tick_send_new_goal(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_tick_send_new_goal(self) -> Result[TickReturnState, BehaviorTreeException]:
         """Tick to request the execution of a new goal on the action server."""
         if self._ac is None:
-            # TODO Should this be an error
-            return Ok(BTNodeState.BROKEN)
+            return Err(BehaviorTreeException("No action client available"))
         self._new_goal_request_future = self._ac.send_goal_async(
             goal=self._input_goal, feedback_callback=self._feedback_cb
         )
@@ -749,11 +754,11 @@ class Action(Leaf):
         self._active_goal = self._input_goal
         self._internal_state = ActionStates.WAITING_FOR_GOAL_ACCEPTANCE
 
-        return Ok(BTNodeState.SUCCEEDED)
+        return Ok(TickReturnState.SUCCEEDED)
 
     def _do_tick_wait_for_new_goal_complete(
         self,
-    ) -> Result[BTNodeState, BehaviorTreeException]:
+    ) -> Result[TickReturnState, BehaviorTreeException]:
         """Tick to wait for the new goal to be accepted by the action server!."""
         if self._new_goal_request_future is None:
             self.logerr(
@@ -761,7 +766,7 @@ class Action(Leaf):
                 "on the action server, but the future is none!"
             )
             self._internal_state = ActionStates.IDLE
-            return Ok(BTNodeState.BROKEN)
+            return Ok(TickReturnState.FAILED)
 
         if self._new_goal_request_future.done():
             self._running_goal_handle = self._new_goal_request_future.result()
@@ -770,13 +775,13 @@ class Action(Leaf):
             if self._running_goal_handle is None:
                 self.logwarn("Action goal was rejeced by the server!")
                 self._internal_state = ActionStates.FINISHED
-                return Ok(BTNodeState.FAILED)
+                return Ok(TickReturnState.FAILED)
 
             self._running_goal_start_time = self.ros_node.get_clock().now()
             self._running_goal_future = self._running_goal_handle.get_result_async()
 
             self._internal_state = ActionStates.WAITING_FOR_ACTION_COMPLETE
-            return Ok(BTNodeState.SUCCEEDED)
+            return Ok(TickReturnState.SUCCEEDED)
 
         if self._new_goal_request_future.cancelled():
             self.logwarn("Request for a new goal was cancelled!")
@@ -785,17 +790,17 @@ class Action(Leaf):
             self._active_goal = None
 
             self._internal_state = ActionStates.FINISHED
-            return Ok(BTNodeState.FAILED)
+            return Ok(TickReturnState.FAILED)
 
-        return Ok(BTNodeState.RUNNING)
+        return Ok(TickReturnState.RUNNING)
 
-    def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_tick(self) -> Result[TickReturnState, BehaviorTreeException]:
         if not self._action_available:
             if (
                 "fail_if_not_available" in self.options
                 and self.options["fail_if_not_available"]
             ):
-                return Ok(BTNodeState.FAILED)
+                return Ok(TickReturnState.FAILED)
 
         self._input_goal = self._goal_type()
         for k, v in self._input_goal.get_fields_and_field_types().items():
@@ -803,12 +808,12 @@ class Action(Leaf):
 
         if self._internal_state == ActionStates.IDLE:
             status = self._do_tick_send_new_goal()
-            if status.ok() not in [BTNodeState.SUCCEEDED]:
+            if status.ok() not in [TickReturnState.SUCCEEDED]:
                 return status
 
         if self._internal_state == ActionStates.WAITING_FOR_GOAL_ACCEPTANCE:
             status = self._do_tick_wait_for_new_goal_complete()
-            if status.ok() not in [BTNodeState.SUCCEEDED]:
+            if status.ok() not in [TickReturnState.SUCCEEDED]:
                 return status
 
         if self._internal_state == ActionStates.WAITING_FOR_ACTION_COMPLETE:
@@ -821,7 +826,7 @@ class Action(Leaf):
         if self._internal_state == ActionStates.REQUEST_GOAL_CANCELLATION:
             status = self._do_tick_cancel_running_goal()
             # Check if goal cancel request was succssful!
-            if status.ok() not in [BTNodeState.SUCCEEDED]:
+            if status.ok() not in [TickReturnState.SUCCEEDED]:
                 return status
 
         if self._internal_state == ActionStates.WAITING_FOR_GOAL_CANCELLATION:
@@ -830,20 +835,24 @@ class Action(Leaf):
         if self._internal_state == ActionStates.FINISHED:
             return self._do_tick_finished()
 
-        return Ok(BTNodeState.BROKEN)
+        return Err(BehaviorTreeException("Internal state broken"))
 
-    def _do_tick_finished(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_tick_finished(self) -> Result[TickReturnState, BehaviorTreeException]:
         if self._active_goal == self._input_goal:
-            return Ok(self._state)
+            if self._state == TickReturnState.SUCCEEDED:
+                return Ok(TickReturnState.SUCCEEDED)
+            if self._state == TickReturnState.FAILED:
+                return Ok(TickReturnState.FAILED)
+            return Err(BehaviorTreeException("Node is in improper state"))
         else:
             self._internal_state = ActionStates.IDLE
-            return Ok(BTNodeState.RUNNING)
+            return Ok(TickReturnState.RUNNING)
 
-    def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_untick(self) -> Result[UntickReturnState, BehaviorTreeException]:
         if self._internal_state == ActionStates.WAITING_FOR_ACTION_COMPLETE:
             cancel_result = self._do_tick_cancel_running_goal()
             if cancel_result.is_err():
-                return cancel_result
+                return Err(cancel_result.unwrap_err())
 
         self._last_goal_time = None
         self._running_goal_future = None
@@ -853,9 +862,9 @@ class Action(Leaf):
         self._feedback = None
         self._internal_state = ActionStates.IDLE
 
-        return Ok(BTNodeState.IDLE)
+        return Ok(UntickReturnState.IDLE)
 
-    def _do_reset(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_reset(self) -> Result[None, BehaviorTreeException]:
         # same as untick...
         untick_result = self._do_untick()
         # but also clear the outputs
@@ -864,15 +873,19 @@ class Action(Leaf):
 
         for k, v in self._feedback_type.get_fields_and_field_types().items():
             self.outputs["feedback_" + k] = None
-        return untick_result
 
-    def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
+        if untick_result.is_err():
+            return Err(untick_result.unwrap_err())
+
+        return Ok(None)
+
+    def _do_shutdown(self) -> Result[None, BehaviorTreeException]:
         # nothing to do beyond what's done in reset
         reset_result = self._do_reset()
         self._action_available = False
         if reset_result.is_err():
             return reset_result
-        return Ok(BTNodeState.SHUTDOWN)
+        return Ok(None)
 
     def _do_calculate_utility(self) -> Result[UtilityBounds, BehaviorTreeException]:
         if not self.has_ros_node:

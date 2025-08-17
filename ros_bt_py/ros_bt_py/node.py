@@ -65,8 +65,6 @@ from ros_bt_py_interfaces.msg import (
     Wiring,
     WiringData,
     TreeStructure,
-    TreeState,
-    TreeData,
 )
 
 from ros_bt_py.debug_manager import DebugManager
@@ -80,7 +78,14 @@ from ros_bt_py.exceptions import (
 from ros_bt_py.node_data import NodeData, NodeDataMap
 from ros_bt_py.node_config import NodeConfig, OptionRef
 from ros_bt_py.custom_types import TypeWrapper
-from ros_bt_py.helpers import BTNodeState, get_default_value, json_decode, json_encode
+from ros_bt_py.helpers import (
+  BTNodeState, 
+  TickReturnState, 
+  UntickReturnState,
+  get_default_value, 
+  json_decode, 
+  json_encode
+)
 
 
 @typechecked
@@ -472,7 +477,7 @@ class Node(object, metaclass=NodeMeta):
         self.logdebug(f"Setting new ROS node: {new_ros_node}")
         self._ros_node = new_ros_node
 
-    def setup(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def setup(self) -> Result[None, BehaviorTreeException]:
         """
         Prepare the node to be ticked for the first time.
 
@@ -504,16 +509,17 @@ class Node(object, metaclass=NodeMeta):
             setup_result = self._do_setup()
             self._setup_called = True
 
-            if setup_result.is_err():
-                self.state = BTNodeState.BROKEN
+            if setup_result.is_ok():
+                self.state = BTNodeState.IDLE
             else:
-                self.state = setup_result.unwrap()
+                self.state = BTNodeState.BROKEN
+                return setup_result
 
         return setup_result
 
     @abc.abstractmethod
     @typechecked
-    def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_setup(self) -> Result[None, BehaviorTreeException]:
         """
         Use this to do custom node setup.
 
@@ -554,7 +560,7 @@ class Node(object, metaclass=NodeMeta):
         """
         self.outputs.handle_subscriptions()
 
-    def tick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def tick(self) -> Result[TickReturnState, BehaviorTreeException]:
         """
         Handle node on tick action everytime this is called (at ~10-20Hz, usually).
 
@@ -609,22 +615,9 @@ class Node(object, metaclass=NodeMeta):
             # cycle!
             self.inputs.reset_updated()
 
-            valid_state_result = self.check_if_in_invalid_state(
-                allowed_states=[
-                    BTNodeState.RUNNING,
-                    BTNodeState.SUCCEEDED,
-                    BTNodeState.FAILED,
-                    BTNodeState.ASSIGNED,
-                    BTNodeState.UNASSIGNED,
-                ],
-                action_name="tick()",
-            )
-            if valid_state_result.is_err():
-                return Err(valid_state_result.unwrap_err())
-
             self._handle_outputs()
 
-            return Ok(self.state)
+            return tick_result
 
     @typechecked
     def check_if_in_invalid_state(
@@ -642,7 +635,7 @@ class Node(object, metaclass=NodeMeta):
 
     @abc.abstractmethod
     @typechecked
-    def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_tick(self) -> Result[TickReturnState, BehaviorTreeException]:
         """
         Every Node class must override this.
 
@@ -656,7 +649,7 @@ class Node(object, metaclass=NodeMeta):
         self.logerr(msg)
         return Err(BehaviorTreeException(msg))
 
-    def untick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def untick(self) -> Result[UntickReturnState, BehaviorTreeException]:
         """
         Signal a node that it should stop any background tasks.
 
@@ -683,19 +676,12 @@ class Node(object, metaclass=NodeMeta):
                 self.state = BTNodeState.BROKEN
                 return untick_result
 
-            check_state_result = self.check_if_in_invalid_state(
-                allowed_states=[BTNodeState.IDLE, BTNodeState.PAUSED],
-                action_name="untick()",
-            )
-            if check_state_result.is_err():
-                return Err(check_state_result.unwrap_err())
-
             self.outputs.reset_updated()
-            return Ok(self.state)
+            return untick_result
 
     @abc.abstractmethod
     @typechecked
-    def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_untick(self) -> Result[UntickReturnState, BehaviorTreeException]:
         """
         Abstract method used to implement the actual untick operations.
 
@@ -706,12 +692,14 @@ class Node(object, metaclass=NodeMeta):
         1. Be in the IDLE or PAUSED state, unless an error happened
         2. Not execute any of its behavior in the background
         3. Be ready to resume on the next call of :meth:`tick`
+
+        Return `True` if the node is IDLE, `False` if the node is PAUSED.
         """
         msg = f"Unticking a node of type {self.__class__.__name__} without _do_untick function!"
         self.logerr(msg)
         return Err(BehaviorTreeException(msg))
 
-    def reset(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def reset(self) -> Result[None, BehaviorTreeException]:
         """
         Reset a node completly.
 
@@ -742,22 +730,16 @@ class Node(object, metaclass=NodeMeta):
 
             reset_result = self._do_reset()
             if reset_result.is_ok():
-                self.state = reset_result.unwrap()
+                self.state = BTNodeState.IDLE
             else:
                 self.state = BTNodeState.BROKEN
                 return reset_result
-            valid_state_result = self.check_if_in_invalid_state(
-                allowed_states=[BTNodeState.IDLE], action_name="reset()"
-            )
 
-            if valid_state_result.is_err():
-                return Err(valid_state_result.unwrap_err())
-
-            return Ok(self.state)
+            return reset_result
 
     @abc.abstractmethod
     @typechecked
-    def _do_reset(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_reset(self) -> Result[None, BehaviorTreeException]:
         """
         Abstract method used to implement the reset action.
 
@@ -774,7 +756,7 @@ class Node(object, metaclass=NodeMeta):
         self.logerr(msg)
         return Err(BehaviorTreeException(msg))
 
-    def shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def shutdown(self) -> Result[None, BehaviorTreeException]:
         """
         Prepare a node for deletion.
 
@@ -814,7 +796,7 @@ class Node(object, metaclass=NodeMeta):
 
             shutdown_result = self._do_shutdown()
             if shutdown_result.is_ok():
-                self.state = shutdown_result.unwrap()
+                self.state = BTNodeState.SHUTDOWN
             else:
                 self.state = BTNodeState.BROKEN
                 error_result = shutdown_result
@@ -844,11 +826,11 @@ class Node(object, metaclass=NodeMeta):
             if error_result is not None:
                 return error_result
 
-            return Ok(self.state)
+            return shutdown_result
 
     @abc.abstractmethod
     @typechecked
-    def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_shutdown(self) -> Result[None, BehaviorTreeException]:
         """
         Abstract method implementing the shutdown action.
 

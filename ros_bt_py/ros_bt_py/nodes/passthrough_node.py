@@ -30,7 +30,7 @@ from result import Result, Ok, Err
 from ros_bt_py.node import Leaf, define_bt_node
 from ros_bt_py.node_config import NodeConfig, OptionRef
 from ros_bt_py.exceptions import BehaviorTreeException
-from ros_bt_py.helpers import BTNodeState
+from ros_bt_py.helpers import TickReturnState, UntickReturnState
 
 
 @define_bt_node(
@@ -51,20 +51,20 @@ class PassthroughNode(Leaf):
 
     """
 
-    def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.IDLE)
+    def _do_setup(self) -> Result[None, BehaviorTreeException]:
+        return Ok(None)
 
-    def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_tick(self) -> Result[TickReturnState, BehaviorTreeException]:
         self.outputs["out"] = self.inputs["in"]
-        return Ok(BTNodeState.SUCCEEDED)
+        return Ok(TickReturnState.SUCCEEDED)
 
-    def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.IDLE)
+    def _do_untick(self) -> Result[UntickReturnState, BehaviorTreeException]:
+        return Ok(UntickReturnState.IDLE)
 
-    def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.SHUTDOWN)
+    def _do_shutdown(self) -> Result[None, BehaviorTreeException]:
+        return Ok(None)
 
-    def _do_reset(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_reset(self) -> Result[None, BehaviorTreeException]:
         self.outputs["out"] = None
         self.outputs.reset_updated()
-        return Ok(BTNodeState.IDLE)
+        return Ok(None)

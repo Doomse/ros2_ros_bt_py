@@ -31,7 +31,7 @@ from result import Result, Ok, Err
 
 from ros_bt_py.node import Leaf, define_bt_node
 from ros_bt_py.node_config import NodeConfig
-from ros_bt_py.helpers import BTNodeState
+from ros_bt_py.helpers import TickReturnState, UntickReturnState
 from ros_bt_py.exceptions import BehaviorTreeException
 
 
@@ -53,31 +53,31 @@ class Wait(Leaf):
     If `seconds_to_wait` is 0 or negative, the node will immediately succeed
     """
 
-    def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_setup(self) -> Result[None, BehaviorTreeException]:
         self.first_tick = True
-        return Ok(BTNodeState.IDLE)
+        return Ok(None)
 
-    def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_tick(self) -> Result[TickReturnState, BehaviorTreeException]:
         now = time()
         if self.first_tick:
             self.start_time = now
             self.end_time = self.start_time + self.options["seconds_to_wait"]
             self.first_tick = False
         if now >= self.end_time:
-            return Ok(BTNodeState.SUCCEEDED)
+            return Ok(TickReturnState.SUCCEEDED)
         else:
-            return Ok(BTNodeState.RUNNING)
+            return Ok(TickReturnState.RUNNING)
 
-    def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_shutdown(self) -> Result[None, BehaviorTreeException]:
         self.first_tick = True
-        return Ok(BTNodeState.SHUTDOWN)
+        return Ok(None)
 
-    def _do_reset(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_reset(self) -> Result[None, BehaviorTreeException]:
         self.first_tick = True
-        return Ok(BTNodeState.IDLE)
+        return Ok(None)
 
-    def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.IDLE)
+    def _do_untick(self) -> Result[UntickReturnState, BehaviorTreeException]:
+        return Ok(UntickReturnState.IDLE)
 
 
 @define_bt_node(
@@ -98,28 +98,28 @@ class WaitInput(Leaf):
     If `seconds_to_wait` is 0 or negative, the node will immediately succeed
     """
 
-    def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_setup(self) -> Result[None, BehaviorTreeException]:
         self.first_tick = True
-        return Ok(BTNodeState.IDLE)
+        return Ok(None)
 
-    def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_tick(self) -> Result[TickReturnState, BehaviorTreeException]:
         now = time()
         if self.first_tick:
             self.start_time = now
             self.end_time = self.start_time + self.inputs["seconds_to_wait"]
             self.first_tick = False
         if now >= self.end_time:
-            return Ok(BTNodeState.SUCCEEDED)
+            return Ok(TickReturnState.SUCCEEDED)
         else:
-            return Ok(BTNodeState.RUNNING)
+            return Ok(TickReturnState.RUNNING)
 
-    def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_shutdown(self) -> Result[None, BehaviorTreeException]:
         self.first_tick = True
-        return Ok(BTNodeState.SHUTDOWN)
-
-    def _do_reset(self) -> Result[BTNodeState, BehaviorTreeException]:
+        return Ok(None)
+    
+    def _do_reset(self) -> Result[None, BehaviorTreeException]:
         self.first_tick = True
-        return Ok(BTNodeState.IDLE)
+        return Ok(None)
 
-    def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.IDLE)
+    def _do_untick(self) -> Result[UntickReturnState, BehaviorTreeException]:
+        return Ok(UntickReturnState.IDLE)

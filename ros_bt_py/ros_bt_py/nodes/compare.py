@@ -27,7 +27,7 @@
 # POSSIBILITY OF SUCH DAMAGE.
 from result import Result, Ok
 from ros_bt_py.exceptions import BehaviorTreeException
-from ros_bt_py.helpers import BTNodeState
+from ros_bt_py.helpers import TickReturnState, UntickReturnState
 
 from ros_bt_py.node import Leaf, define_bt_node
 from ros_bt_py.node_config import NodeConfig, OptionRef
@@ -50,27 +50,27 @@ class Compare(Leaf):
     Will succeed if `a == b` and fail otherwise
     """
 
-    def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.IDLE)
+    def _do_setup(self) -> Result[None, BehaviorTreeException]:
+        return Ok(None)
 
-    def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_tick(self) -> Result[TickReturnState, BehaviorTreeException]:
         if self.inputs["a"] == self.inputs["b"]:
-            return Ok(BTNodeState.SUCCEEDED)
+            return Ok(TickReturnState.SUCCEEDED)
 
         # If we didn't received both values yet, or we did and they're
         # not equal, fail
-        return Ok(BTNodeState.FAILED)
+        return Ok(TickReturnState.FAILED)
 
-    def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_untick(self) -> Result[UntickReturnState, BehaviorTreeException]:
         # Nothing to do
-        return Ok(BTNodeState.IDLE)
+        return Ok(UntickReturnState.IDLE)
 
-    def _do_reset(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.IDLE)
+    def _do_reset(self) -> Result[None, BehaviorTreeException]:
+        return Ok(None)
 
-    def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_shutdown(self) -> Result[None, BehaviorTreeException]:
         # Nothing to do
-        return Ok(BTNodeState.SHUTDOWN)
+        return Ok(None)
 
 
 @define_bt_node(
@@ -89,31 +89,31 @@ class CompareNewOnly(Leaf):
     Will succeed if `a == b` and fail otherwise
     """
 
-    def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.IDLE)
+    def _do_setup(self) -> Result[None, BehaviorTreeException]:
+        return Ok(None)
 
-    def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_tick(self) -> Result[TickReturnState, BehaviorTreeException]:
         if self.inputs.is_updated("a") or self.inputs.is_updated("b"):
             if self.inputs["a"] == self.inputs["b"]:
-                return Ok(BTNodeState.SUCCEEDED)
+                return Ok(TickReturnState.SUCCEEDED)
             else:
-                return Ok(BTNodeState.FAILED)
-        return Ok(BTNodeState.RUNNING)
+                return Ok(TickReturnState.FAILED)
+        return Ok(TickReturnState.RUNNING)
 
-    def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_untick(self) -> Result[UntickReturnState, BehaviorTreeException]:
         # Nothing to do
-        return Ok(BTNodeState.IDLE)
+        return Ok(UntickReturnState.IDLE)
 
-    def _do_reset(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_reset(self) -> Result[None, BehaviorTreeException]:
         # Reset output to False, so we'll return False until we
         # receive a new input.
         self.inputs.reset_updated()
 
-        return Ok(BTNodeState.IDLE)
+        return Ok(None)
 
-    def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_shutdown(self) -> Result[None, BehaviorTreeException]:
         # Nothing to do
-        return Ok(BTNodeState.SHUTDOWN)
+        return Ok(None)
 
 
 @define_bt_node(
@@ -135,33 +135,33 @@ class CompareConstant(Leaf):
     Will succeed if `expected == in` and fail otherwise
     """
 
-    def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_setup(self) -> Result[None, BehaviorTreeException]:
         self._received_in = False
-        return Ok(BTNodeState.IDLE)
+        return Ok(None)
 
-    def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_tick(self) -> Result[TickReturnState, BehaviorTreeException]:
         if not self._received_in:
             if self.inputs.is_updated("in"):
                 self._received_in = True
 
         if self._received_in and self.options["expected"] == self.inputs["in"]:
-            return Ok(BTNodeState.SUCCEEDED)
+            return Ok(TickReturnState.SUCCEEDED)
         else:
-            return Ok(BTNodeState.FAILED)
+            return Ok(TickReturnState.FAILED)
 
-    def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_untick(self) -> Result[UntickReturnState, BehaviorTreeException]:
         # Nothing to do
-        return Ok(BTNodeState.IDLE)
+        return Ok(UntickReturnState.IDLE)
 
-    def _do_reset(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_reset(self) -> Result[None, BehaviorTreeException]:
         self.inputs.reset_updated()
         self._received_in = False
 
-        return Ok(BTNodeState.IDLE)
+        return Ok(None)
 
-    def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_shutdown(self) -> Result[None, BehaviorTreeException]:
         # Nothing to do
-        return Ok(BTNodeState.SHUTDOWN)
+        return Ok(None)
 
 
 @define_bt_node(
@@ -180,12 +180,12 @@ class ALessThanB(Leaf):
     Will succeed if `a < b` and fail otherwise
     """
 
-    def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_setup(self) -> Result[None, BehaviorTreeException]:
         self._received_a = False
         self._received_b = False
-        return Ok(BTNodeState.IDLE)
+        return Ok(None)
 
-    def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_tick(self) -> Result[TickReturnState, BehaviorTreeException]:
         if not self._received_a:
             if self.inputs.is_updated("a"):
                 self._received_a = True
@@ -194,57 +194,57 @@ class ALessThanB(Leaf):
                 self._received_b = True
         if self._received_a and self._received_b:
             if self.inputs["a"] < self.inputs["b"]:
-                return Ok(BTNodeState.SUCCEEDED)
+                return Ok(TickReturnState.SUCCEEDED)
 
         # If we didn't received both values yet, or we did and they're
         # not equal, fail
-        return Ok(BTNodeState.FAILED)
+        return Ok(TickReturnState.FAILED)
 
-    def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_untick(self) -> Result[UntickReturnState, BehaviorTreeException]:
         # Nothing to do
-        return Ok(BTNodeState.IDLE)
+        return Ok(UntickReturnState.IDLE)
 
-    def _do_reset(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_reset(self) -> Result[None, BehaviorTreeException]:
         self.inputs.reset_updated()
         self._received_a = False
         self._received_b = False
-        return Ok(BTNodeState.IDLE)
+        return Ok(None)
 
-    def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_shutdown(self) -> Result[None, BehaviorTreeException]:
         # Nothing to do
-        return Ok(BTNodeState.SHUTDOWN)
+        return Ok(None)
 
 
 # TODO Why is this here, surely there's a better way to solve this?
 #   Probably difficult to change in a backwards compatible manner.
 class LessThanConstantImp(Leaf):
-    def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_setup(self) -> Result[None, BehaviorTreeException]:
         self._received_in = False
-        return Ok(BTNodeState.IDLE)
+        return Ok(None)
 
-    def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_tick(self) -> Result[TickReturnState, BehaviorTreeException]:
         if not self._received_in:
             if self.inputs.is_updated("a"):
                 self._received_in = True
 
         if self._received_in and self.inputs["a"] < self.options["target"]:
-            return Ok(BTNodeState.SUCCEEDED)
+            return Ok(TickReturnState.SUCCEEDED)
         else:
-            return Ok(BTNodeState.FAILED)
+            return Ok(TickReturnState.FAILED)
 
-    def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_untick(self) -> Result[UntickReturnState, BehaviorTreeException]:
         # Nothing to do
-        return Ok(BTNodeState.IDLE)
+        return Ok(UntickReturnState.IDLE)
 
-    def _do_reset(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_reset(self) -> Result[None, BehaviorTreeException]:
         self.inputs.reset_updated()
         self._received_in = False
 
-        return Ok(BTNodeState.IDLE)
+        return Ok(None)
 
-    def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_shutdown(self) -> Result[None, BehaviorTreeException]:
         # Nothing to do
-        return Ok(BTNodeState.SHUTDOWN)
+        return Ok(None)
 
 
 @define_bt_node(

@@ -32,7 +32,7 @@ from result import Result, Ok, Err
 from ros_bt_py_interfaces.msg import UtilityBounds
 
 from ros_bt_py.exceptions import BehaviorTreeException
-from ros_bt_py.helpers import BTNodeState
+from ros_bt_py.helpers import TickReturnState, UntickReturnState
 from ros_bt_py.node import FlowControl, define_bt_node
 from ros_bt_py.node_config import NodeConfig
 
@@ -69,7 +69,7 @@ class Parallel(FlowControl):
 
     """
 
-    def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_setup(self) -> Result[None, BehaviorTreeException]:
         if len(self.children) < self.options["needed_successes"]:
             return Err(
                 BehaviorTreeException(
@@ -82,62 +82,62 @@ class Parallel(FlowControl):
             result = child.setup()
             if result.is_err():
                 return result
-        return Ok(BTNodeState.IDLE)
+        return Ok(None)
 
-    def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_tick(self) -> Result[TickReturnState, BehaviorTreeException]:
         # Just like Sequence and Fallback, reset after having returned
         # SUCCEEDED or FAILED once
-        if self.state in [BTNodeState.SUCCEEDED, BTNodeState.FAILED]:
+        if self.state in [TickReturnState.SUCCEEDED, TickReturnState.FAILED]:
             for child in self.children:
                 result = child.reset()
                 if result.is_err():
-                    return result
+                    return Err(result.unwrap_err())
 
         successes = 0
         failures = 0
         for child in self.children:
-            if child.state not in [BTNodeState.SUCCEEDED, BTNodeState.FAILED]:
+            if child.state not in [TickReturnState.SUCCEEDED, TickReturnState.FAILED]:
                 result = child.tick()
                 if result.is_err():
                     return result
-            if child.state == BTNodeState.SUCCEEDED:
+            if child.state == TickReturnState.SUCCEEDED:
                 successes += 1
-            if child.state == BTNodeState.FAILED:
+            if child.state == TickReturnState.FAILED:
                 failures += 1
         if successes >= self.options["needed_successes"]:
             # untick all running children
             for child in self.children:
-                if child.state not in [BTNodeState.SUCCEEDED, BTNodeState.FAILED]:
+                if child.state not in [TickReturnState.SUCCEEDED, TickReturnState.FAILED]:
                     result = child.untick()
                     if result.is_err():
-                        return result
-            return Ok(BTNodeState.SUCCEEDED)
+                        return Err(result.unwrap_err())
+            return Ok(TickReturnState.SUCCEEDED)
         elif failures > len(self.children) - self.options["needed_successes"]:
             # untick all running children
             for child in self.children:
-                if child.state not in [BTNodeState.SUCCEEDED, BTNodeState.FAILED]:
+                if child.state not in [TickReturnState.SUCCEEDED, TickReturnState.FAILED]:
                     result = child.untick()
                     if result.is_err():
-                        return result
-            return Ok(BTNodeState.FAILED)
-        return Ok(BTNodeState.RUNNING)
+                        return Err(result.unwrap_err())
+            return Ok(TickReturnState.FAILED)
+        return Ok(TickReturnState.RUNNING)
 
-    def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.SHUTDOWN)
+    def _do_shutdown(self) -> Result[None, BehaviorTreeException]:
+        return Ok(None)
 
-    def _do_reset(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_reset(self) -> Result[None, BehaviorTreeException]:
         for child in self.children:
             result = child.reset()
             if result.is_err():
                 return result
-        return Ok(BTNodeState.IDLE)
+        return Ok(None)
 
-    def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_untick(self) -> Result[UntickReturnState, BehaviorTreeException]:
         for child in self.children:
             result = child.untick()
             if result.is_err():
                 return result
-        return Ok(BTNodeState.IDLE)
+        return Ok(UntickReturnState.IDLE)
 
     def _do_calculate_utility(self) -> Result[UtilityBounds, BehaviorTreeException]:
         if len(self.children) < self.options["needed_successes"]:
@@ -276,7 +276,7 @@ class ParallelFailureTolerance(FlowControl):
 
     """
 
-    def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_setup(self) -> Result[None, BehaviorTreeException]:
         if len(self.children) < self.options["needed_successes"]:
             return Err(
                 BehaviorTreeException(
@@ -289,62 +289,62 @@ class ParallelFailureTolerance(FlowControl):
             result = child.setup()
             if result.is_err():
                 return result
-        return Ok(BTNodeState.IDLE)
+        return Ok(None)
 
-    def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_tick(self) -> Result[TickReturnState, BehaviorTreeException]:
         # Just like Sequence and Fallback, reset after having returned
         # SUCCEEDED or FAILED once
-        if self.state in [BTNodeState.SUCCEEDED, BTNodeState.FAILED]:
+        if self.state in [TickReturnState.SUCCEEDED, TickReturnState.FAILED]:
             for child in self.children:
                 result = child.reset()
                 if result.is_err():
-                    return result
+                    return Err(result.unwrap_err())
 
         successes = 0
         failures = 0
         for child in self.children:
-            if child.state not in [BTNodeState.SUCCEEDED, BTNodeState.FAILED]:
+            if child.state not in [TickReturnState.SUCCEEDED, TickReturnState.FAILED]:
                 result = child.tick()
                 if result.is_err():
                     return result
-            if child.state == BTNodeState.SUCCEEDED:
+            if child.state == TickReturnState.SUCCEEDED:
                 successes += 1
-            if child.state == BTNodeState.FAILED:
+            if child.state == TickReturnState.FAILED:
                 failures += 1
         if successes >= self.options["needed_successes"]:
             # untick all running children
             for child in self.children:
-                if child.state not in [BTNodeState.SUCCEEDED, BTNodeState.FAILED]:
+                if child.state not in [TickReturnState.SUCCEEDED, TickReturnState.FAILED]:
                     result = child.untick()
                     if result.is_err():
-                        return result
-            return Ok(BTNodeState.SUCCEEDED)
+                        return Err(result.unwrap_err())
+            return Ok(TickReturnState.SUCCEEDED)
         elif failures > self.options["tolerate_failures"]:
             # untick all running children
             for child in self.children:
-                if child.state not in [BTNodeState.SUCCEEDED, BTNodeState.FAILED]:
+                if child.state not in [TickReturnState.SUCCEEDED, TickReturnState.FAILED]:
                     result = child.untick()
                     if result.is_err():
-                        return result
-            return Ok(BTNodeState.FAILED)
-        return Ok(BTNodeState.RUNNING)
+                        return Err(result.unwrap_err())
+            return Ok(TickReturnState.FAILED)
+        return Ok(TickReturnState.RUNNING)
 
-    def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.SHUTDOWN)
+    def _do_shutdown(self) -> Result[None, BehaviorTreeException]:
+        return Ok(None)
 
-    def _do_reset(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_reset(self) -> Result[None, BehaviorTreeException]:
         for child in self.children:
             result = child.reset()
             if result.is_err():
                 return result
-        return Ok(BTNodeState.IDLE)
+        return Ok(None)
 
-    def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_untick(self) -> Result[UntickReturnState, BehaviorTreeException]:
         for child in self.children:
             result = child.untick()
             if result.is_err():
                 return result
-        return Ok(BTNodeState.IDLE)
+        return Ok(UntickReturnState.IDLE)
 
     def _do_calculate_utility(self) -> Result[UtilityBounds, BehaviorTreeException]:
         if len(self.children) < self.options["needed_successes"]:

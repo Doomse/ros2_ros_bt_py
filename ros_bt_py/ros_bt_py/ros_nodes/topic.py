@@ -42,7 +42,7 @@ from rclpy.time import Time
 from ros_bt_py_interfaces.msg import UtilityBounds
 
 from ros_bt_py.exceptions import BehaviorTreeException
-from ros_bt_py.helpers import BTNodeState
+from ros_bt_py.helpers import TickReturnState, UntickReturnState
 from ros_bt_py.node import Leaf, define_bt_node
 from ros_bt_py.node_config import NodeConfig
 from ros_bt_py.custom_types import RosTopicName, RosTopicType
@@ -112,7 +112,7 @@ class TopicSubscriber(Leaf):
     _lock = Lock()
     _subscriber = None
 
-    def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_setup(self) -> Result[None, BehaviorTreeException]:
         self._msg = None
 
         reliability_policy = (
@@ -136,42 +136,42 @@ class TopicSubscriber(Leaf):
             callback=self._callback,
             qos_profile=self._qos_profile,
         )
-        return Ok(BTNodeState.IDLE)
+        return Ok(None)
 
     def _callback(self, msg):
         with self._lock:
             self._msg = msg
 
-    def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_tick(self) -> Result[TickReturnState, BehaviorTreeException]:
         with self._lock:
             if self._msg is None:
-                return Ok(BTNodeState.RUNNING)
+                return Ok(TickReturnState.RUNNING)
             self.outputs["message"] = self._msg
             self._msg = None
-        return Ok(BTNodeState.SUCCEEDED)
+        return Ok(TickReturnState.SUCCEEDED)
 
-    def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_shutdown(self) -> Result[None, BehaviorTreeException]:
         self._msg = None
         if self._subscriber is None:
-            return Ok(BTNodeState.SHUTDOWN)
+            return Ok(None)
         # Unsubscribe from the topic so we don't receive further updates
         try:
             success = self.ros_node.destroy_subscription(self._subscriber)
             if not success:
                 self.logwarn("Failed to destroy subscription")
-                return Ok(BTNodeState.BROKEN)
+                return Err(BehaviorTreeException("Failed to destroy ROS subscriber"))
             self._subscriber = None
         except AttributeError:
             self.logwarn("Can not unregister as no subscriber is available.")
-        return Ok(BTNodeState.SHUTDOWN)
+        return Ok(None)
 
-    def _do_reset(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_reset(self) -> Result[None, BehaviorTreeException]:
         # discard the last received message
         self._msg = None
-        return Ok(BTNodeState.IDLE)
+        return Ok(None)
 
-    def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.IDLE)
+    def _do_untick(self) -> Result[UntickReturnState, BehaviorTreeException]:
+        return Ok(UntickReturnState.IDLE)
 
     def _do_calculate_utility(self) -> Result[UtilityBounds, BehaviorTreeException]:
         if not self.has_ros_node:
@@ -262,7 +262,7 @@ class TopicMemorySubscriber(Leaf):
     _lock = Lock()
     _subscriber = None
 
-    def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_setup(self) -> Result[None, BehaviorTreeException]:
         if not self.has_ros_node:
             error_msg = f"{self.name} does not have a refrence to a ROS node!"
             self.logerr(error_msg)
@@ -292,14 +292,14 @@ class TopicMemorySubscriber(Leaf):
             callback=self._callback,
             qos_profile=self._qos_profile,
         )
-        return Ok(BTNodeState.IDLE)
+        return Ok(None)
 
     def _callback(self, msg):
         with self._lock:
             self._msg = msg
             self._msg_timestamp = self.ros_node.get_clock().now()
 
-    def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_tick(self) -> Result[TickReturnState, BehaviorTreeException]:
         with self._lock:
             if self._msg is None:
                 if self._msg_timestamp is not None:
@@ -309,36 +309,36 @@ class TopicMemorySubscriber(Leaf):
                         ).nanoseconds
                         / 1e9
                     ) > self.options["memory_delay"]:
-                        return Ok(BTNodeState.FAILED)
+                        return Ok(TickReturnState.FAILED)
 
-                return Ok(BTNodeState.RUNNING)
+                return Ok(TickReturnState.RUNNING)
             self.outputs["message"] = self._msg
-        return Ok(BTNodeState.SUCCEEDED)
+        return Ok(TickReturnState.SUCCEEDED)
 
-    def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_shutdown(self) -> Result[None, BehaviorTreeException]:
         self._msg = None
         self._msg_timestamp = None
         if self._subscriber is None:
-            return Ok(BTNodeState.SHUTDOWN)
+            return Ok(None)
         # Unsubscribe from the topic so we don't receive further updates
         try:
             success = self.ros_node.destroy_subscription(self._subscriber)
             if not success:
                 self.logwarn("Failed to destroy subscription")
-                return Ok(BTNodeState.BROKEN)
+                return Err(BehaviorTreeException("Failed to destroy ROS subscriber"))
             self._subscriber = None
         except AttributeError:
             self.logwarn("Can not unregister as no subscriber is available.")
-        return Ok(BTNodeState.IDLE)
+        return Ok(None)
 
-    def _do_reset(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_reset(self) -> Result[None, BehaviorTreeException]:
         # discard the last received message
         self._msg = None
         self._msg_timestamp = None
-        return Ok(BTNodeState.IDLE)
+        return Ok(None)
 
-    def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.IDLE)
+    def _do_untick(self) -> Result[UntickReturnState, BehaviorTreeException]:
+        return Ok(UntickReturnState.IDLE)
 
     def _do_calculate_utility(self) -> Result[UtilityBounds, BehaviorTreeException]:
         if not self.has_ros_node:
@@ -415,7 +415,7 @@ class TopicPublisher(Leaf):
         if register_result.is_err():
             raise register_result.unwrap_err()
 
-    def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_setup(self) -> Result[None, BehaviorTreeException]:
         if not self.has_ros_node:
             error_msg = f"{self.name} does not have a refrence to a ROS node!"
             self.logerr(error_msg)
@@ -442,32 +442,32 @@ class TopicPublisher(Leaf):
             topic=self._topic_name,
             qos_profile=self._qos_profile,
         )
-        return Ok(BTNodeState.IDLE)
+        return Ok(None)
 
-    def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_tick(self) -> Result[TickReturnState, BehaviorTreeException]:
         # Only publish a new message if our input data has been updated - the
         # old one is latched anyway.
         if self.inputs.is_updated("message"):
             if self._publisher is None:
-                return Ok(BTNodeState.BROKEN)
+                return Err(BehaviorTreeException("No ROS publisher to use"))
             self._publisher.publish(self.inputs["message"])
-        return Ok(BTNodeState.SUCCEEDED)
+        return Ok(TickReturnState.SUCCEEDED)
 
-    def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_shutdown(self) -> Result[None, BehaviorTreeException]:
         # Unregister the publisher
         try:
             if self._publisher is not None:
                 success = self.ros_node.destroy_publisher(self._publisher)
                 if not success:
                     self.logwarn("Failed to destroy publisher")
-                    return Ok(BTNodeState.BROKEN)
+                    return Err(BehaviorTreeException("Failed to destroy ROS publisher"))
         except AttributeError:
             self.logwarn("Can not unregister as no publisher is available.")
         self._publisher = None
-        return Ok(BTNodeState.SHUTDOWN)
+        return Ok(None)
 
-    def _do_reset(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.IDLE)
+    def _do_reset(self) -> Result[None, BehaviorTreeException]:
+        return Ok(None)
 
-    def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.IDLE)
+    def _do_untick(self) -> Result[UntickReturnState, BehaviorTreeException]:
+        return Ok(UntickReturnState.IDLE)

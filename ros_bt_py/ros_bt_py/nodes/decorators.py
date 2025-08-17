@@ -31,7 +31,7 @@ from ros_bt_py_interfaces.msg import UtilityBounds
 
 from ros_bt_py.node import Decorator, define_bt_node
 from ros_bt_py.node_config import NodeConfig
-from ros_bt_py.helpers import BTNodeState
+from ros_bt_py.helpers import TickReturnState, UntickReturnState
 from ros_bt_py.exceptions import BehaviorTreeException
 
 
@@ -46,35 +46,35 @@ class IgnoreFailure(Decorator):
 
     """
 
-    def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_setup(self) -> Result[None, BehaviorTreeException]:
         for child in self.children:
             return child.setup()
-        return Ok(BTNodeState.IDLE)
+        return Ok(None)
 
-    def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_tick(self) -> Result[TickReturnState, BehaviorTreeException]:
         for child in self.children:
             result = child.tick()
             if result.is_err():
                 return result
-            if result.unwrap() == BTNodeState.FAILED:
-                return Ok(BTNodeState.SUCCEEDED)
+            if result.unwrap() == TickReturnState.FAILED:
+                return Ok(TickReturnState.SUCCEEDED)
             return result
 
         # Succeed if we have no children
-        return Ok(BTNodeState.SUCCEEDED)
+        return Ok(TickReturnState.SUCCEEDED)
 
-    def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.SHUTDOWN)
+    def _do_shutdown(self) -> Result[None, BehaviorTreeException]:
+        return Ok(None)
 
-    def _do_reset(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_reset(self) -> Result[None, BehaviorTreeException]:
         for child in self.children:
             return child.reset()
-        return Ok(BTNodeState.IDLE)
+        return Ok(None)
 
-    def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_untick(self) -> Result[UntickReturnState, BehaviorTreeException]:
         for child in self.children:
             return child.untick()
-        return Ok(BTNodeState.IDLE)
+        return Ok(UntickReturnState.IDLE)
 
 
 @define_bt_node(
@@ -89,39 +89,39 @@ class IgnoreFailure(Decorator):
 class IgnoreRunning(Decorator):
     """Return SUCCESS or FAILURE when the child returns RUNNING."""
 
-    def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_setup(self) -> Result[None, BehaviorTreeException]:
         for child in self.children:
             return child.setup()
-        return Ok(BTNodeState.IDLE)
+        return Ok(None)
 
-    def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_tick(self) -> Result[TickReturnState, BehaviorTreeException]:
         for child in self.children:
             result = child.tick()
             if result.is_err():
                 return result
 
-            if result.unwrap() == BTNodeState.RUNNING:
+            if result.unwrap() == TickReturnState.RUNNING:
                 if self.options["running_is_success"]:
-                    return Ok(BTNodeState.SUCCEEDED)
+                    return Ok(TickReturnState.SUCCEEDED)
                 else:
-                    return Ok(BTNodeState.FAILED)
+                    return Ok(TickReturnState.FAILED)
             return result
 
         # Fails if we have no children
-        return Ok(BTNodeState.FAILED)
+        return Ok(TickReturnState.FAILED)
 
-    def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.SHUTDOWN)
+    def _do_shutdown(self) -> Result[None, BehaviorTreeException]:
+        return Ok(None)
 
-    def _do_reset(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_reset(self) -> Result[None, BehaviorTreeException]:
         for child in self.children:
             return child.reset()
-        return Ok(BTNodeState.IDLE)
+        return Ok(None)
 
-    def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_untick(self) -> Result[UntickReturnState, BehaviorTreeException]:
         for child in self.children:
             return child.untick()
-        return Ok(BTNodeState.IDLE)
+        return Ok(UntickReturnState.IDLE)
 
 
 @define_bt_node(
@@ -135,35 +135,35 @@ class IgnoreSuccess(Decorator):
 
     """
 
-    def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_setup(self) -> Result[None, BehaviorTreeException]:
         for child in self.children:
             return child.setup()
-        return Ok(BTNodeState.IDLE)
+        return Ok(None)
 
-    def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_tick(self) -> Result[TickReturnState, BehaviorTreeException]:
         for child in self.children:
             result = child.tick()
             if result.is_err():
                 return result
-            if result.unwrap() == BTNodeState.SUCCEEDED:
-                return Ok(BTNodeState.FAILED)
+            if result.unwrap() == TickReturnState.SUCCEEDED:
+                return Ok(TickReturnState.FAILED)
             return result
 
         # Fails if we have no children
-        return Ok(BTNodeState.FAILED)
+        return Ok(TickReturnState.FAILED)
 
-    def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.SHUTDOWN)
+    def _do_shutdown(self) -> Result[None, BehaviorTreeException]:
+        return Ok(None)
 
-    def _do_reset(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_reset(self) -> Result[None, BehaviorTreeException]:
         for child in self.children:
             return child.reset()
-        return Ok(BTNodeState.IDLE)
+        return Ok(None)
 
-    def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_untick(self) -> Result[UntickReturnState, BehaviorTreeException]:
         for child in self.children:
             return child.untick()
-        return Ok(BTNodeState.IDLE)
+        return Ok(UntickReturnState.IDLE)
 
 
 @define_bt_node(
@@ -179,35 +179,35 @@ class UntilSuccess(Decorator):
 
     """
 
-    def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_setup(self) -> Result[None, BehaviorTreeException]:
         for child in self.children:
             return child.setup()
-        return Ok(BTNodeState.IDLE)
+        return Ok(None)
 
-    def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_tick(self) -> Result[TickReturnState, BehaviorTreeException]:
         for child in self.children:
             result = child.tick()
             if result.is_err():
                 return result
-            if result.unwrap() == BTNodeState.FAILED:
-                return Ok(BTNodeState.RUNNING)
+            if result.unwrap() == TickReturnState.FAILED:
+                return Ok(TickReturnState.RUNNING)
             return result
 
         # Succeed if we have no children
-        return Ok(BTNodeState.SUCCEEDED)
+        return Ok(TickReturnState.SUCCEEDED)
 
-    def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.SHUTDOWN)
+    def _do_shutdown(self) -> Result[None, BehaviorTreeException]:
+        return Ok(None)
 
-    def _do_reset(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_reset(self) -> Result[None, BehaviorTreeException]:
         for child in self.children:
             return child.reset()
-        return Ok(BTNodeState.IDLE)
+        return Ok(None)
 
-    def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_untick(self) -> Result[UntickReturnState, BehaviorTreeException]:
         for child in self.children:
             return child.untick()
-        return Ok(BTNodeState.IDLE)
+        return Ok(UntickReturnState.IDLE)
 
 
 @define_bt_node(
@@ -223,38 +223,38 @@ class Inverter(Decorator):
     RUNNING is forwarded
     """
 
-    def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_setup(self) -> Result[None, BehaviorTreeException]:
         for child in self.children:
             return child.setup()
-        return Ok(BTNodeState.IDLE)
+        return Ok(None)
 
-    def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_tick(self) -> Result[TickReturnState, BehaviorTreeException]:
         for child in self.children:
             result = child.tick()
             if result.is_err():
                 return result
 
-            if result.value == BTNodeState.FAILED:
-                return Ok(BTNodeState.SUCCEEDED)
-            elif result.value == BTNodeState.SUCCEEDED:
-                return Ok(BTNodeState.FAILED)
+            if result.unwrap() == TickReturnState.FAILED:
+                return Ok(TickReturnState.SUCCEEDED)
+            elif result.unwrap() == TickReturnState.SUCCEEDED:
+                return Ok(TickReturnState.FAILED)
             return result
 
         # Succeed if we have no children
-        return Ok(BTNodeState.SUCCEEDED)
+        return Ok(TickReturnState.SUCCEEDED)
 
-    def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.SHUTDOWN)
+    def _do_shutdown(self) -> Result[None, BehaviorTreeException]:
+        return Ok(None)
 
-    def _do_reset(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_reset(self) -> Result[None, BehaviorTreeException]:
         for child in self.children:
             return child.reset()
-        return Ok(BTNodeState.IDLE)
+        return Ok(None)
 
-    def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_untick(self) -> Result[UntickReturnState, BehaviorTreeException]:
         for child in self.children:
             return child.untick()
-        return Ok(BTNodeState.IDLE)
+        return Ok(UntickReturnState.IDLE)
 
 
 @define_bt_node(
@@ -275,17 +275,17 @@ class Retry(Decorator):
 
     """
 
-    def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_setup(self) -> Result[None, BehaviorTreeException]:
         self._retry_count = 0
         for child in self.children:
             return child.setup()
-        return Ok(BTNodeState.IDLE)
+        return Ok(None)
 
-    def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_tick(self) -> Result[TickReturnState, BehaviorTreeException]:
         for child in self.children:
             result = child.tick()
 
-            if result.is_ok() and result.value == BTNodeState.FAILED:
+            if result.is_ok() and result.unwrap() == TickReturnState.FAILED:
                 if self._retry_count < self.options["num_retries"]:
                     self._retry_count += 1
 
@@ -293,28 +293,28 @@ class Retry(Decorator):
                     if reset_result.is_err():
                         return reset_result
 
-                    return Ok(BTNodeState.RUNNING)
+                    return Ok(TickReturnState.RUNNING)
                 else:
                     self._retry_count = 0
-                    return Ok(BTNodeState.FAILED)
+                    return Ok(TickReturnState.FAILED)
             return result
 
         # Succeed if we have no children
-        return Ok(BTNodeState.SUCCEEDED)
+        return Ok(TickReturnState.SUCCEEDED)
 
-    def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.SHUTDOWN)
+    def _do_shutdown(self) -> Result[None, BehaviorTreeException]:
+        return Ok(None)
 
-    def _do_reset(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_reset(self) -> Result[None, BehaviorTreeException]:
         self._retry_count = 0
         for child in self.children:
             return child.reset()
-        return Ok(BTNodeState.IDLE)
+        return Ok(None)
 
-    def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_untick(self) -> Result[UntickReturnState, BehaviorTreeException]:
         for child in self.children:
             return child.untick()
-        return Ok(BTNodeState.IDLE)
+        return Ok(UntickReturnState.IDLE)
 
 
 @define_bt_node(
@@ -337,47 +337,47 @@ class Repeat(Decorator):
 
     """
 
-    def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_setup(self) -> Result[None, BehaviorTreeException]:
         self._repeat_count = 0
         for child in self.children:
             return child.setup()
-        return Ok(BTNodeState.IDLE)
+        return Ok(None)
 
-    def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_tick(self) -> Result[TickReturnState, BehaviorTreeException]:
         for child in self.children:
             result = child.tick()
             if result.is_err():
                 return result
 
-            if result.value == BTNodeState.FAILED:
-                return Ok(BTNodeState.FAILED)
-            elif result.value == BTNodeState.SUCCEEDED:
+            if result.unwrap() == TickReturnState.FAILED:
+                return Ok(TickReturnState.FAILED)
+            elif result.unwrap() == TickReturnState.SUCCEEDED:
                 if self._repeat_count < self.options["num_repeats"]:
                     self._repeat_count += 1
                     reset_result = child.reset()
                     if reset_result.is_err():
                         return reset_result
-                    return Ok(BTNodeState.RUNNING)
+                    return Ok(TickReturnState.RUNNING)
                 else:
-                    return Ok(BTNodeState.SUCCEEDED)
+                    return Ok(TickReturnState.SUCCEEDED)
             return result
 
         # Succeed if we have no children
-        return Ok(BTNodeState.SUCCEEDED)
+        return Ok(TickReturnState.SUCCEEDED)
 
-    def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.SHUTDOWN)
+    def _do_shutdown(self) -> Result[None, BehaviorTreeException]:
+        return Ok(None)
 
-    def _do_reset(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_reset(self) -> Result[None, BehaviorTreeException]:
         self._repeat_count = 0
         for child in self.children:
             return child.reset()
-        return Ok(BTNodeState.IDLE)
+        return Ok(None)
 
-    def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_untick(self) -> Result[UntickReturnState, BehaviorTreeException]:
         for child in self.children:
             return child.untick()
-        return Ok(BTNodeState.IDLE)
+        return Ok(UntickReturnState.IDLE)
 
 
 @define_bt_node(
@@ -405,11 +405,11 @@ class RepeatNoAutoReset(Repeat):
     have been met.
     """
 
-    def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_setup(self) -> Result[None, BehaviorTreeException]:
         self._received_in = False
         return super()._do_setup()
 
-    def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_tick(self) -> Result[TickReturnState, BehaviorTreeException]:
         if self.inputs["reset"] is not None and self.inputs["reset"]:
             self._repeat_count = 0
             self.inputs["reset"] = False
@@ -420,29 +420,29 @@ class RepeatNoAutoReset(Repeat):
                 result = child.tick()
                 if result.is_err():
                     return result
-                if result.value == BTNodeState.FAILED:
-                    return Ok(BTNodeState.FAILED)
-                elif result.value == BTNodeState.SUCCEEDED:
+                if result.unwrap() == TickReturnState.FAILED:
+                    return Ok(TickReturnState.FAILED)
+                elif result.unwrap() == TickReturnState.SUCCEEDED:
                     if self._repeat_count < self.options["num_repeats"]:
                         self._repeat_count += 1
                         reset_result = child.reset()
                         if reset_result.is_err():
                             return reset_result
-                        return Ok(BTNodeState.RUNNING)
+                        return Ok(TickReturnState.RUNNING)
                     else:
-                        return Ok(BTNodeState.SUCCEEDED)
+                        return Ok(TickReturnState.SUCCEEDED)
                 return result
 
         # Succeed if we have no children
-        return Ok(BTNodeState.SUCCEEDED)
+        return Ok(TickReturnState.SUCCEEDED)
 
-    def _do_reset(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_reset(self) -> Result[None, BehaviorTreeException]:
         self._received_in = False
         # Only reset childs if we havent reached our goal
         if self._repeat_count < self.options["num_repeats"]:
             for child in self.children:
                 return child.reset()
-        return Ok(BTNodeState.IDLE)
+        return Ok(None)
 
 
 @define_bt_node(
@@ -458,37 +458,37 @@ class RepeatAlways(Decorator):
 
     """
 
-    def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_setup(self) -> Result[None, BehaviorTreeException]:
         for child in self.children:
             return child.setup()
-        return Ok(BTNodeState.IDLE)
+        return Ok(None)
 
-    def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_tick(self) -> Result[TickReturnState, BehaviorTreeException]:
         for child in self.children:
             result = child.tick()
             if result.is_err():
                 return result
-            if result.value != BTNodeState.RUNNING:
+            if result.unwrap() != TickReturnState.RUNNING:
                 reset_result = child.reset()
                 if reset_result.is_err():
                     return reset_result
-            return Ok(BTNodeState.RUNNING)
+            return Ok(TickReturnState.RUNNING)
 
         # Succeed if we have no children
-        return Ok(BTNodeState.SUCCEEDED)
+        return Ok(TickReturnState.SUCCEEDED)
 
-    def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.SHUTDOWN)
+    def _do_shutdown(self) -> Result[None, BehaviorTreeException]:
+        return Ok(None)
 
-    def _do_reset(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_reset(self) -> Result[None, BehaviorTreeException]:
         for child in self.children:
             return child.reset()
-        return Ok(BTNodeState.IDLE)
+        return Ok(None)
 
-    def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_untick(self) -> Result[UntickReturnState, BehaviorTreeException]:
         for child in self.children:
             return child.untick()
-        return Ok(BTNodeState.IDLE)
+        return Ok(UntickReturnState.IDLE)
 
 
 @define_bt_node(
@@ -505,39 +505,39 @@ class RepeatUntilFail(Decorator):
 
     """
 
-    def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_setup(self) -> Result[None, BehaviorTreeException]:
         for child in self.children:
             return child.setup()
-        return Ok(BTNodeState.IDLE)
+        return Ok(None)
 
-    def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_tick(self) -> Result[TickReturnState, BehaviorTreeException]:
         for child in self.children:
             result = child.tick()
             if result.is_err():
                 return result
-            if result.value == BTNodeState.FAILED:
-                return Ok(BTNodeState.FAILED)
-            elif result.value == BTNodeState.SUCCEEDED:
+            if result.unwrap() == TickReturnState.FAILED:
+                return Ok(TickReturnState.FAILED)
+            elif result.unwrap() == TickReturnState.SUCCEEDED:
                 reset_result = child.reset()
                 if reset_result.is_err():
                     return reset_result
-            return Ok(BTNodeState.RUNNING)
+            return Ok(TickReturnState.RUNNING)
 
         # Succeed if we have no children
-        return Ok(BTNodeState.SUCCEEDED)
+        return Ok(TickReturnState.SUCCEEDED)
 
-    def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.SHUTDOWN)
+    def _do_shutdown(self) -> Result[None, BehaviorTreeException]:
+        return Ok(None)
 
-    def _do_reset(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_reset(self) -> Result[None, BehaviorTreeException]:
         for child in self.children:
             return child.reset()
-        return Ok(BTNodeState.IDLE)
+        return Ok(None)
 
-    def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_untick(self) -> Result[UntickReturnState, BehaviorTreeException]:
         for child in self.children:
             return child.untick()
-        return Ok(BTNodeState.IDLE)
+        return Ok(UntickReturnState.IDLE)
 
 
 @define_bt_node(
@@ -554,39 +554,39 @@ class RepeatIfFail(Decorator):
 
     """
 
-    def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_setup(self) -> Result[None, BehaviorTreeException]:
         for child in self.children:
             return child.setup()
-        return Ok(BTNodeState.IDLE)
+        return Ok(None)
 
-    def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_tick(self) -> Result[TickReturnState, BehaviorTreeException]:
         for child in self.children:
             result = child.tick()
             if result.is_err():
                 return result
-            if result == BTNodeState.FAILED:
+            if result.unwrap() == TickReturnState.FAILED:
                 reset_result = child.reset()
                 if reset_result.is_err():
                     return reset_result
-            elif result.value == BTNodeState.SUCCEEDED:
-                return Ok(BTNodeState.SUCCEEDED)
-            return Ok(BTNodeState.RUNNING)
+            elif result.value == TickReturnState.SUCCEEDED:
+                return Ok(TickReturnState.SUCCEEDED)
+            return Ok(TickReturnState.RUNNING)
 
         # Succeed if we have no children
-        return Ok(BTNodeState.SUCCEEDED)
+        return Ok(TickReturnState.SUCCEEDED)
 
-    def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.SHUTDOWN)
+    def _do_shutdown(self) -> Result[None, BehaviorTreeException]:
+        return Ok(None)
 
-    def _do_reset(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_reset(self) -> Result[None, BehaviorTreeException]:
         for child in self.children:
             return child.reset()
-        return Ok(BTNodeState.IDLE)
+        return Ok(None)
 
-    def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_untick(self) -> Result[UntickReturnState, BehaviorTreeException]:
         for child in self.children:
             return child.untick()
-        return Ok(BTNodeState.IDLE)
+        return Ok(UntickReturnState.IDLE)
 
 
 @define_bt_node(
@@ -604,7 +604,7 @@ class Optional(Decorator):
 
     """
 
-    def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_setup(self) -> Result[None, BehaviorTreeException]:
         self.execute_child = False
         for child in self.children:
             utility = child.calculate_utility()
@@ -615,28 +615,28 @@ class Optional(Decorator):
                     return child.setup()
             else:
                 return Err(utility.unwrap_err())
-        return Ok(BTNodeState.IDLE)
+        return Ok(None)
 
-    def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_tick(self) -> Result[TickReturnState, BehaviorTreeException]:
         if self.execute_child:
             return self.children[0].tick()
         else:
-            return Ok(BTNodeState.SUCCEEDED)
+            return Ok(TickReturnState.SUCCEEDED)
 
-    def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.SHUTDOWN)
+    def _do_shutdown(self) -> Result[None, BehaviorTreeException]:
+        return Ok(None)
 
-    def _do_reset(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_reset(self) -> Result[None, BehaviorTreeException]:
         if self.execute_child:
             return self.children[0].reset()
         else:
-            return Ok(BTNodeState.IDLE)
+            return Ok(None)
 
-    def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_untick(self) -> Result[UntickReturnState, BehaviorTreeException]:
         if self.execute_child:
             return self.children[0].untick()
         else:
-            return Ok(BTNodeState.IDLE)
+            return Ok(UntickReturnState.IDLE)
 
     def _do_calculate_utility(self) -> Result[UtilityBounds, BehaviorTreeException]:
         for child in self.children:
@@ -663,15 +663,15 @@ class Optional(Decorator):
 class Watch(Decorator):
     """Untick child if watch string changed."""
 
-    def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_setup(self) -> Result[None, BehaviorTreeException]:
         self.previous_watch = float("NaN")
         for child in self.children:
             return child.setup()
-        return Ok(BTNodeState.IDLE)
+        return Ok(None)
 
-    def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_tick(self) -> Result[TickReturnState, BehaviorTreeException]:
         if len(self.children) == 0:
-            return Ok(BTNodeState.SUCCEEDED)
+            return Ok(TickReturnState.SUCCEEDED)
 
         child = self.children[0]
         if self.previous_watch != self.inputs["watch"]:
@@ -682,18 +682,18 @@ class Watch(Decorator):
 
         return self.children[0].tick()
 
-    def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_shutdown(self) -> Result[None, BehaviorTreeException]:
         self.previous_watch = float("NaN")
-        return Ok(BTNodeState.SHUTDOWN)
+        return Ok(None)
 
-    def _do_reset(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_reset(self) -> Result[None, BehaviorTreeException]:
         self.previous_watch = float("NaN")
         for child in self.children:
             return child.reset()
-        return Ok(BTNodeState.IDLE)
+        return Ok(None)
 
-    def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_untick(self) -> Result[UntickReturnState, BehaviorTreeException]:
         self.previous_watch = float("NaN")
         for child in self.children:
             return child.untick()
-        return Ok(BTNodeState.IDLE)
+        return Ok(UntickReturnState.IDLE)

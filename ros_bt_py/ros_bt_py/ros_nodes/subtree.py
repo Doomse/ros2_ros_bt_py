@@ -44,7 +44,7 @@ from ros_bt_py.node import Node as BTNode
 from ros_bt_py.node_config import NodeConfig
 
 from ros_bt_py.custom_types import FilePath
-from ros_bt_py.helpers import BTNodeState
+from ros_bt_py.helpers import TickReturnState, UntickReturnState
 
 
 @define_bt_node(
@@ -132,7 +132,7 @@ class Subtree(Leaf):
             )
             # TODO Should this be flagged as broken, since we convey load failure as an output
             #   Suggesting that it is intended behaviour and not an error.
-            self.state = BTNodeState.BROKEN
+            self.state = TickReturnState.FAILED
 
             self.outputs["load_success"] = False
             self.outputs["load_error_msg"] = get_error_message(response)
@@ -288,13 +288,13 @@ class Subtree(Leaf):
                     )
         return Ok(None)
 
-    def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_setup(self) -> Result[None, BehaviorTreeException]:
         find_root_result = self.manager.find_root()
         if find_root_result.is_err():
             return Err(find_root_result.unwrap_err())
         self.root = find_root_result.unwrap()
         if self.root is None:
-            return Ok(BTNodeState.IDLE)
+            return Ok(None)
         setup_root_result = self.root.setup()
         if self.subtree_manager:
             self.subtree_manager.add_subtree_state(
@@ -302,10 +302,10 @@ class Subtree(Leaf):
             )
         return setup_root_result
 
-    def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_tick(self) -> Result[TickReturnState, BehaviorTreeException]:
         if not self.root:
-            # TODO Should this be an Err() ??? same also above in setup
-            return Ok(BTNodeState.BROKEN)
+            # TODO Should this be an error?
+            return Ok(TickReturnState.FAILED)
         tick_root_result = self.root.tick()
         if self.subtree_manager:
             self.subtree_manager.add_subtree_state(
@@ -317,10 +317,10 @@ class Subtree(Leaf):
                 )
         return tick_root_result
 
-    def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_untick(self) -> Result[UntickReturnState, BehaviorTreeException]:
         if not self.root:
             # TODO Should this be an Err() ???
-            return Ok(BTNodeState.BROKEN)
+            return Ok(True)
         untick_root_result = self.root.untick()
         if self.subtree_manager:
             self.subtree_manager.add_subtree_state(
@@ -328,9 +328,9 @@ class Subtree(Leaf):
             )
         return untick_root_result
 
-    def _do_reset(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_reset(self) -> Result[None, BehaviorTreeException]:
         if not self.root:
-            return Ok(BTNodeState.IDLE)
+            return Ok(None)
         reset_root_result = self.root.reset()
         if self.subtree_manager:
             self.subtree_manager.add_subtree_state(
@@ -338,9 +338,9 @@ class Subtree(Leaf):
             )
         return reset_root_result
 
-    def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_shutdown(self) -> Result[None, BehaviorTreeException]:
         if not self.root:
-            return Ok(BTNodeState.SHUTDOWN)
+            return Ok(None)
         shutdown_root_result = self.root.shutdown()
         if self.subtree_manager:
             self.subtree_manager.add_subtree_state(

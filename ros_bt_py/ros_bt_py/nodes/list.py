@@ -29,7 +29,7 @@
 from result import Result, Ok, Err
 from ros_bt_py.node import Leaf, Decorator, define_bt_node
 from ros_bt_py.node_config import NodeConfig, OptionRef
-from ros_bt_py.helpers import BTNodeState
+from ros_bt_py.helpers import TickReturnState, UntickReturnState
 from ros_bt_py.exceptions import BehaviorTreeException
 
 
@@ -45,21 +45,21 @@ from ros_bt_py.exceptions import BehaviorTreeException
 class ListLength(Leaf):
     """Compute list length."""
 
-    def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.IDLE)
+    def _do_setup(self) -> Result[None, BehaviorTreeException]:
+        return Ok(None)
 
-    def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_tick(self) -> Result[TickReturnState, BehaviorTreeException]:
         self.outputs["length"] = len(self.inputs["list"])
-        return Ok(BTNodeState.SUCCEEDED)
+        return Ok(TickReturnState.SUCCEEDED)
 
-    def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.SHUTDOWN)
+    def _do_shutdown(self) -> Result[None, BehaviorTreeException]:
+        return Ok(None)
 
-    def _do_reset(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.IDLE)
+    def _do_reset(self) -> Result[None, BehaviorTreeException]:
+        return Ok(None)
 
-    def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.IDLE)
+    def _do_untick(self) -> Result[UntickReturnState, BehaviorTreeException]:
+        return Ok(UntickReturnState.IDLE)
 
 
 @define_bt_node(
@@ -74,21 +74,21 @@ class ListLength(Leaf):
 class GetListElementOption(Leaf):
     """Return element at given index in the list."""
 
-    def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.IDLE)
+    def _do_setup(self) -> Result[None, BehaviorTreeException]:
+        return Ok(None)
 
-    def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_tick(self) -> Result[TickReturnState, BehaviorTreeException]:
         self.outputs["element"] = self.inputs["list"][self.options["index"]]
-        return Ok(BTNodeState.SUCCEEDED)
+        return Ok(TickReturnState.SUCCEEDED)
 
-    def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.SHUTDOWN)
+    def _do_shutdown(self) -> Result[None, BehaviorTreeException]:
+        return Ok(None)
 
-    def _do_reset(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.IDLE)
+    def _do_reset(self) -> Result[None, BehaviorTreeException]:
+        return Ok(None)
 
-    def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.IDLE)
+    def _do_untick(self) -> Result[UntickReturnState, BehaviorTreeException]:
+        return Ok(UntickReturnState.IDLE)
 
 
 @define_bt_node(
@@ -103,23 +103,23 @@ class GetListElementOption(Leaf):
 class InsertInList(Leaf):
     """Return a new list with the inserted element."""
 
-    def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.IDLE)
+    def _do_setup(self) -> Result[None, BehaviorTreeException]:
+        return Ok(None)
 
-    def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_tick(self) -> Result[TickReturnState, BehaviorTreeException]:
         if self.inputs.is_updated("list") or self.inputs.is_updated("element"):
             self.outputs["list"] = list(self.inputs["list"])
             self.outputs["list"].insert(self.options["index"], self.inputs["element"])
-        return Ok(BTNodeState.SUCCEEDED)
+        return Ok(TickReturnState.SUCCEEDED)
 
-    def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.SHUTDOWN)
+    def _do_shutdown(self) -> Result[None, BehaviorTreeException]:
+        return Ok(None)
 
-    def _do_reset(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.IDLE)
+    def _do_reset(self) -> Result[None, BehaviorTreeException]:
+        return Ok(None)
 
-    def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.IDLE)
+    def _do_untick(self) -> Result[UntickReturnState, BehaviorTreeException]:
+        return Ok(UntickReturnState.IDLE)
 
 
 @define_bt_node(
@@ -138,33 +138,33 @@ class IsInList(Leaf):
     Will succeed if `in` is in `list` and fail otherwise
     """
 
-    def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_setup(self) -> Result[None, BehaviorTreeException]:
         self._received_in = False
-        return Ok(BTNodeState.IDLE)
+        return Ok(None)
 
-    def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_tick(self) -> Result[TickReturnState, BehaviorTreeException]:
         if not self._received_in:
             if self.inputs.is_updated("in"):
                 self._received_in = True
 
         if self._received_in and self.inputs["in"] in self.options["list"]:
-            return Ok(BTNodeState.SUCCEEDED)
+            return Ok(TickReturnState.SUCCEEDED)
         else:
-            return Ok(BTNodeState.FAILED)
+            return Ok(TickReturnState.FAILED)
 
-    def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_untick(self) -> Result[UntickReturnState, BehaviorTreeException]:
         # Nothing to do
-        return Ok(BTNodeState.IDLE)
+        return Ok(UntickReturnState.IDLE)
 
-    def _do_reset(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_reset(self) -> Result[None, BehaviorTreeException]:
         self.inputs.reset_updated()
         self._received_in = False
 
-        return Ok(BTNodeState.IDLE)
+        return Ok(None)
 
-    def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_shutdown(self) -> Result[None, BehaviorTreeException]:
         # Nothing to do
-        return Ok(BTNodeState.SHUTDOWN)
+        return Ok(None)
 
 
 @define_bt_node(
@@ -187,18 +187,18 @@ class IterateList(Decorator):
     If the decorated child returned failure, it fails.
     """
 
-    def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_setup(self) -> Result[None, BehaviorTreeException]:
         self.reset_counter()
         if len(self.children) == 1:
             result = self.children[0].setup()
             return result
-        return Ok(BTNodeState.IDLE)
+        return Ok(None)
 
     def reset_counter(self):
         self.output_changed = True
         self.counter = 0
 
-    def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_tick(self) -> Result[TickReturnState, BehaviorTreeException]:
         if self.inputs.is_updated("list"):
             self.logdebug("Input list changed - resetting iterator")
             self.reset_counter()
@@ -208,45 +208,45 @@ class IterateList(Decorator):
             self.outputs["list_item"] = self.inputs["list"][self.counter]
         else:
             self.logdebug("Nothing to iterate, input list is empty")
-            return Ok(BTNodeState.SUCCEEDED)
+            return Ok(TickReturnState.SUCCEEDED)
 
         if len(self.children) == 0:
             self.counter += 1
             if self.counter == len(self.inputs["list"]):
                 self.reset_counter()
-                return Ok(BTNodeState.SUCCEEDED)
+                return Ok(TickReturnState.SUCCEEDED)
         else:
             if self.output_changed:
                 # let one tick go for the tree to digest our new output before childs are ticked
                 self.output_changed = False
-                return Ok(BTNodeState.RUNNING)
+                return Ok(TickReturnState.RUNNING)
             for child in self.children:
                 result = child.tick()
                 if result.is_err():
                     return result
-                if result.ok() == BTNodeState.SUCCEEDED:
+                if result.ok() == TickReturnState.SUCCEEDED:
                     # we only increment the counter when the child succeeded
                     self.counter += 1
                     self.output_changed = True
                     if self.counter == len(self.inputs["list"]):
                         self.reset_counter()
-                        return Ok(BTNodeState.SUCCEEDED)
-                elif result.ok() == BTNodeState.FAILED:
+                        return Ok(TickReturnState.SUCCEEDED)
+                elif result.ok() == TickReturnState.FAILED:
                     # child failed: we failed
-                    return Ok(BTNodeState.FAILED)
-        return Ok(BTNodeState.RUNNING)
+                    return Ok(TickReturnState.FAILED)
+        return Ok(TickReturnState.RUNNING)
 
-    def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_untick(self) -> Result[UntickReturnState, BehaviorTreeException]:
         for child in self.children:
             return child.untick()
-        return Ok(BTNodeState.IDLE)
+        return Ok(UntickReturnState.IDLE)
 
-    def _do_reset(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_reset(self) -> Result[None, BehaviorTreeException]:
         self.inputs.reset_updated()
         self.reset_counter()
         for child in self.children:
             return child.reset()
-        return Ok(BTNodeState.IDLE)
+        return Ok(None)
 
-    def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.SHUTDOWN)
+    def _do_shutdown(self) -> Result[None, BehaviorTreeException]:
+        return Ok(None)
