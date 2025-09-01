@@ -56,9 +56,11 @@ class GetConstListItem(Decorator):
 
     def _do_setup(self) -> Result[None, BehaviorTreeException]:
         if len(self.children) == 1:
-            result = self.children[0].setup()
-            if result.is_err():
-                return result
+            match self.children[0].setup():
+                case Err(e):
+                    return Err(e)
+                case Ok(None):
+                    pass
         self.inputs["list"] = []
         self.inputs.reset_updated()
         return Ok(None)
@@ -66,14 +68,14 @@ class GetConstListItem(Decorator):
     def _do_tick(self) -> Result[TickReturnState, BehaviorTreeException]:
         # Tick child (if any) so it can produce its output before we process it
         if len(self.children) == 1:
-            result = self.children[0].tick()
-            if result.is_err():
-                return result
-
-            if result.ok() == TickReturnState.FAILED:
-                return Ok(TickReturnState.FAILED)
-            elif result.ok() == TickReturnState.RUNNING:
-                return Ok(TickReturnState.RUNNING)
+            match self.children[0].tick():
+                case Err(e):
+                    return Err(e)
+                case Ok(s):
+                    if s == TickReturnState.FAILED:
+                        return Ok(s)
+                    if s == TickReturnState.RUNNING:
+                        return Ok(s)
 
         if self.inputs.is_updated("list"):
             try:
@@ -105,9 +107,11 @@ class GetConstListItem(Decorator):
 
     def _do_untick(self) -> Result[UntickReturnState, BehaviorTreeException]:
         if len(self.children) == 1:
-            result = self.children[0].untick()
-            if result.is_err():
-                return result
+            match self.children[0].untick():
+                case Err(e):
+                    return Err(e)
+                case Ok(_):
+                    pass
         return Ok(UntickReturnState.IDLE)
 
 
@@ -132,9 +136,11 @@ class GetListItem(Decorator):
 
     def _do_setup(self) -> Result[None, BehaviorTreeException]:
         if len(self.children) == 1:
-            result = self.children[0].setup()
-            if result.is_err():
-                return result
+            match self.children[0].setup():
+                case Err(e):
+                    return Err(e)
+                case Ok(None):
+                    pass
         self.inputs["list"] = []
         self.inputs.reset_updated()
         return Ok(None)
@@ -142,14 +148,14 @@ class GetListItem(Decorator):
     def _do_tick(self) -> Result[TickReturnState, BehaviorTreeException]:
         # Tick child (if any) so it can produce its output before we process it
         if len(self.children) == 1:
-            result = self.children[0].tick()
-            if result.is_err():
-                return result
-
-            if result.ok() == TickReturnState.FAILED:
-                return Ok(TickReturnState.FAILED)
-            elif result.ok() == TickReturnState.RUNNING:
-                return Ok(TickReturnState.RUNNING)
+            match self.children[0].tick():
+                case Err(e):
+                    return Err(e)
+                case Ok(s):
+                    if s == TickReturnState.FAILED:
+                        return Ok(s)
+                    if s == TickReturnState.RUNNING:
+                        return Ok(s)
 
         if self.inputs.is_updated("list"):
             try:
@@ -181,9 +187,11 @@ class GetListItem(Decorator):
 
     def _do_untick(self) -> Result[UntickReturnState, BehaviorTreeException]:
         if len(self.children) == 1:
-            result = self.children[0].untick()
-            if result.is_err():
-                return result
+            match self.children[0].untick():
+                case Err(e):
+                    return Err(e)
+                case Ok(_):
+                    pass
         return Ok(UntickReturnState.IDLE)
 
 
@@ -201,9 +209,11 @@ class GetDictItem(Decorator):
 
     def _do_setup(self) -> Result[None, BehaviorTreeException]:
         if len(self.children) == 1:
-            result = self.children[0].setup()
-            if result.is_err():
-                return result
+            match self.children[0].setup():
+                case Err(e):
+                    return Err(e)
+                case Ok(None):
+                    pass
         self.inputs["dict"] = {}
         self.inputs.reset_updated()
         return Ok(None)
@@ -211,14 +221,14 @@ class GetDictItem(Decorator):
     def _do_tick(self) -> Result[TickReturnState, BehaviorTreeException]:
         # Tick child (if any) so it can produce its output before we process it
         if len(self.children) == 1:
-            result = self.children[0].tick()
-            if result.is_err():
-                return result
-
-            if result.ok() == TickReturnState.FAILED:
-                return Ok(TickReturnState.FAILED)
-            elif result.ok() == TickReturnState.RUNNING:
-                return Ok(TickReturnState.RUNNING)
+            match self.children[0].tick():
+                case Err(e):
+                    return Err(e)
+                case Ok(s):
+                    if s == TickReturnState.FAILED:
+                        return Ok(s)
+                    if s == TickReturnState.RUNNING:
+                        return Ok(s)
 
         if self.inputs.is_updated("dict"):
             try:
@@ -246,9 +256,11 @@ class GetDictItem(Decorator):
 
     def _do_untick(self) -> Result[UntickReturnState, BehaviorTreeException]:
         if len(self.children) == 1:
-            result = self.children[0].untick()
-            if result.is_err():
-                return result
+            match self.children[0].untick():
+                case Err(e):
+                    return Err(e)
+                case Ok(_):
+                    pass
         return Ok(UntickReturnState.IDLE)
 
 
@@ -266,9 +278,11 @@ class GetMultipleDictItems(Decorator):
 
     def _do_setup(self) -> Result[None, BehaviorTreeException]:
         if len(self.children) == 1:
-            result = self.children[0].setup()
-            if result.is_err():
-                return result
+            match self.children[0].setup():
+                case Err(e):
+                    return Err(e)
+                case Ok(None):
+                    pass
         self.inputs["dict"] = {}
         self.inputs.reset_updated()
         return Ok(None)
@@ -276,14 +290,14 @@ class GetMultipleDictItems(Decorator):
     def _do_tick(self) -> Result[TickReturnState, BehaviorTreeException]:
         # Tick child (if any) so it can produce its output before we process it
         if len(self.children) == 1:
-            result = self.children[0].tick()
-            if result.is_err():
-                return result
-
-            if result.ok() == TickReturnState.FAILED:
-                return Ok(TickReturnState.FAILED)
-            elif result.ok() == TickReturnState.RUNNING:
-                return Ok(TickReturnState.RUNNING)
+            match self.children[0].tick():
+                case Err(e):
+                    return Err(e)
+                case Ok(s):
+                    if s == TickReturnState.FAILED:
+                        return Ok(s)
+                    if s == TickReturnState.RUNNING:
+                        return Ok(s)
 
         if self.inputs.is_updated("dict"):
             try:
@@ -314,9 +328,11 @@ class GetMultipleDictItems(Decorator):
 
     def _do_untick(self) -> Result[UntickReturnState, BehaviorTreeException]:
         if len(self.children) == 1:
-            result = self.children[0].untick()
-            if result.is_err():
-                return result
+            match self.children[0].untick():
+                case Err(e):
+                    return Err(e)
+                case Ok(_):
+                    pass
         return Ok(UntickReturnState.IDLE)
 
 
@@ -334,9 +350,11 @@ class GetDictItemFromKey(Decorator):
 
     def _do_setup(self) -> Result[None, BehaviorTreeException]:
         if len(self.children) == 1:
-            result = self.children[0].setup()
-            if result.is_err():
-                return result
+            match self.children[0].setup():
+                case Err(e):
+                    return Err(e)
+                case Ok(None):
+                    pass
         self.inputs["key"] = ""
         self.inputs.reset_updated()
         return Ok(None)
@@ -344,14 +362,14 @@ class GetDictItemFromKey(Decorator):
     def _do_tick(self) -> Result[TickReturnState, BehaviorTreeException]:
         # Tick child (if any) so it can produce its output before we process it
         if len(self.children) == 1:
-            result = self.children[0].tick()
-            if result.is_err():
-                return result
-
-            if result.ok() == TickReturnState.FAILED:
-                return Ok(TickReturnState.FAILED)
-            elif result.ok() == TickReturnState.RUNNING:
-                return Ok(TickReturnState.RUNNING)
+            match self.children[0].tick():
+                case Err(e):
+                    return Err(e)
+                case Ok(s):
+                    if s == TickReturnState.FAILED:
+                        return Ok(s)
+                    if s == TickReturnState.RUNNING:
+                        return Ok(s)
 
         if self.inputs.is_updated("key"):
             try:
@@ -379,9 +397,11 @@ class GetDictItemFromKey(Decorator):
 
     def _do_untick(self) -> Result[UntickReturnState, BehaviorTreeException]:
         if len(self.children) == 1:
-            result = self.children[0].untick()
-            if result.is_err():
-                return result
+            match self.children[0].untick():
+                case Err(e):
+                    return Err(e)
+                case Ok(_):
+                    pass
         return Ok(UntickReturnState.IDLE)
 
 
@@ -406,9 +426,11 @@ class GetAttr(Decorator):
 
     def _do_setup(self) -> Result[None, BehaviorTreeException]:
         if len(self.children) == 1:
-            result = self.children[0].setup()
-            if result.is_err():
-                return result
+            match self.children[0].setup():
+                case Err(e):
+                    return Err(e)
+                case Ok(None):
+                    pass
         self.inputs["object"] = ""
         self.inputs.reset_updated()
         return Ok(None)
@@ -416,14 +438,14 @@ class GetAttr(Decorator):
     def _do_tick(self) -> Result[TickReturnState, BehaviorTreeException]:
         # Tick child (if any) so it can produce its output before we process it
         if len(self.children) == 1:
-            result = self.children[0].tick()
-            if result.is_err():
-                return result
-
-            if result.ok() == TickReturnState.FAILED:
-                return Ok(TickReturnState.FAILED)
-            elif result.ok() == TickReturnState.RUNNING:
-                return Ok(TickReturnState.RUNNING)
+            match self.children[0].tick():
+                case Err(e):
+                    return Err(e)
+                case Ok(s):
+                    if s == TickReturnState.FAILED:
+                        return Ok(s)
+                    if s == TickReturnState.RUNNING:
+                        return Ok(s)
 
         if self.inputs.is_updated("object"):
             try:
@@ -455,7 +477,9 @@ class GetAttr(Decorator):
 
     def _do_untick(self) -> Result[UntickReturnState, BehaviorTreeException]:
         if len(self.children) == 1:
-            result = self.children[0].untick()
-            if result.is_err():
-                return result
+            match self.children[0].untick():
+                case Err(e):
+                    return Err(e)
+                case Ok(_):
+                    pass
         return Ok(UntickReturnState.IDLE)

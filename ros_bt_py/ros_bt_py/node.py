@@ -31,7 +31,7 @@ from contextlib import contextmanager
 from copy import deepcopy
 from types import ModuleType
 
-from result import Err, Ok, Result, as_result, is_err
+from result import Err, Ok, Result
 
 import abc
 import importlib
@@ -48,6 +48,7 @@ from typing import (
     Sequence,
     Dict,
     Optional,
+    cast,
 )
 
 import rclpy
@@ -513,16 +514,14 @@ class Node(object, metaclass=NodeMeta):
                         f"but node {self.name} is in state {self.state}"
                     )
                 )
-            setup_result = self._do_setup()
-            self._setup_called = True
-
-            if setup_result.is_ok():
-                self.state = BTNodeState.IDLE
-            else:
-                self.state = BTNodeState.BROKEN
-                return setup_result
-
-        return setup_result
+            match self._do_setup():
+                case Err(e):
+                    self.state = BTNodeState.BROKEN
+                    return Err(e)
+                case Ok(None):
+                    self._setup_called = True
+                    self.state = BTNodeState.IDLE
+                    return Ok(None)
 
     @abc.abstractmethod
     @typechecked
@@ -604,16 +603,18 @@ class Node(object, metaclass=NodeMeta):
             self.outputs.reset_updated()
 
             # Inputs can override options!
-            handle_input_result = self._handle_inputs()
-            if handle_input_result.is_err():
-                self.state = BTNodeState.BROKEN
-                return Err(BehaviorTreeException(handle_input_result.err()))
+            match self._handle_inputs():
+                case Err(e):
+                    self.state = BTNodeState.BROKEN
+                    return Err(BehaviorTreeException(e))
+                case Ok(None):
+                    pass
             match self._do_tick():
                 case Err(e):
                     self.state = BTNodeState.BROKEN
                     return Err(e)
                 case Ok(s):
-                    self.state = s
+                    self.state = cast(BTNodeState, s)
             
             # Inputs are updated by other nodes' outputs, i.e. some time after
             # we use them here. In some cases, inputs might be connected to
@@ -624,7 +625,7 @@ class Node(object, metaclass=NodeMeta):
 
             self._handle_outputs()
 
-            return Ok(self.state)
+            return Ok(cast(TickReturnState, self.state))
 
     @typechecked
     def check_if_in_invalid_state(
@@ -681,10 +682,10 @@ class Node(object, metaclass=NodeMeta):
                     self.state = BTNodeState.BROKEN
                     return Err(e)
                 case Ok(s):
-                    self.state = s
+                    self.state = cast(BTNodeState, s)
 
             self.outputs.reset_updated()
-            return Ok(self.state)
+            return Ok(cast(UntickReturnState, self.state))
 
     @abc.abstractmethod
     @typechecked
@@ -1043,14 +1044,16 @@ class Node(object, metaclass=NodeMeta):
 
         """
         # Find the values that are not OptionRefs first
-        find_option_refs_result = self._find_option_refs(
+        match self._find_option_refs(
             source_map=source_map,
             target_map=target_map,
             permissive=permissive,
             values=values,
-        )
-        if find_option_refs_result.is_err():
-            return find_option_refs_result
+        ):
+            case Err(e):
+                return Err(e)
+            case Ok(None):
+                pass
 
         # Now process OptionRefs
         for key, data_type in {
@@ -1677,16 +1680,16 @@ class Node(object, metaclass=NodeMeta):
                 )
             )
 
-        subscribe_result = source_node._subscribe(
+        match source_node._subscribe(
             wiring,
             target_map.get_callback(wiring.target.data_key),
             target_map.get_type(wiring.target.data_key),
-        )
-        if subscribe_result.is_err():
-            return subscribe_result
-
-        self.subscriptions.append(deepcopy(wiring))
-        return Ok(None)
+        ):
+            case Err(e):
+                return Err(e)
+            case Ok(None):
+                self.subscriptions.append(deepcopy(wiring))
+                return Ok(None)
 
     @typechecked
     def _unsubscribe(self, wiring: Wiring) -> Result[None, BehaviorTreeException]:
@@ -1758,9 +1761,11 @@ class Node(object, metaclass=NodeMeta):
             return Ok(None)
 
         if source_node:
-            unsubscribe_result = source_node._unsubscribe(wiring)
-            if unsubscribe_result.is_err():
-                return unsubscribe_result
+            match source_node._unsubscribe(wiring):
+                case Err(e):
+                    return Err(e)
+                case Ok(None):
+                    pass
 
         self.subscriptions.remove(wiring)
 

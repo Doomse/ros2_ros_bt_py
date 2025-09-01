@@ -32,7 +32,7 @@ from ros_bt_py.helpers import TickReturnState, UntickReturnState
 from ros_bt_py.node import FlowControl, define_bt_node
 from ros_bt_py.node_config import NodeConfig
 
-from result import Result, Ok, Err, is_err
+from result import Result, Ok, Err
 
 
 @define_bt_node(
@@ -44,9 +44,11 @@ class NameSwitch(FlowControl):
     def _do_setup(self) -> Result[None, BehaviorTreeException]:
         self.child_map = {child.name.split(".")[-1]: child for child in self.children}
         for child in self.children:
-            result = child.setup()
-            if result.is_err():
-                return result
+            match child.setup():
+                case Err(e):
+                    return Err(e)
+                case Ok(None):
+                    pass
         return Ok(None)
 
     def _do_tick(self) -> Result[TickReturnState, BehaviorTreeException]:
@@ -58,30 +60,38 @@ class NameSwitch(FlowControl):
         # If we've previously succeeded or failed, untick all children
         if self.state in [TickReturnState.SUCCEEDED, TickReturnState.FAILED]:
             for child in self.children:
-                result = child.reset()
-                if result.is_err():
-                    return result
+                match child.reset():
+                    case Err(e):
+                        return Err(e)
+                    case Ok(None):
+                        pass
 
         for child_name, child in self.child_map.items():
             if not child_name == name:
-                result = child.untick()
-                if result.is_err():
-                    return result
+                match child.untick():
+                    case Err(e):
+                        return Err(e)
+                    case Ok(_):
+                        pass
 
         return self.child_map[name].tick()
 
     def _do_untick(self) -> Result[UntickReturnState, BehaviorTreeException]:
         for child in self.children:
-            result = child.untick()
-            if result.is_err():
-                return result
+            match child.untick():
+                case Err(e):
+                    return Err(e)
+                case Ok(_):
+                    pass
         return Ok(UntickReturnState.IDLE)
 
     def _do_reset(self) -> Result[None, BehaviorTreeException]:
         for child in self.children:
-            result = child.reset()
-            if result.is_err():
-                return result
+            match child.reset():
+                case Err(e):
+                    return Err(e)
+                case Ok(None):
+                    pass
         return Ok(None)
 
     def _do_shutdown(self) -> Result[None, BehaviorTreeException]:
@@ -126,9 +136,11 @@ class Fallback(FlowControl):
 
     def _do_setup(self) -> Result[None, BehaviorTreeException]:
         for child in self.children:
-            result = child.setup()
-            if result.is_err():
-                return result
+            match child.setup():
+                case Err(e):
+                    return Err(e)
+                case Ok(None):
+                    pass
         return Ok(None)
 
     def _do_tick(self) -> Result[TickReturnState, BehaviorTreeException]:
@@ -139,42 +151,48 @@ class Fallback(FlowControl):
         # If we've previously succeeded or failed, untick all children
         if self.state in [TickReturnState.SUCCEEDED, TickReturnState.FAILED]:
             for child in self.children:
-                result = child.reset()
-                if result.is_err():
-                    return result
+                match child.reset():
+                    case Err(e):
+                        return Err(e)
+                    case Ok(None):
+                        pass
 
         # Tick children until one returns SUCCEEDED or RUNNING
         for index, child in enumerate(self.children):
-            result = child.tick()
-            if result.is_err():
-                return result
-            if (
-                result.ok() == TickReturnState.SUCCEEDED
-                or result.ok() == TickReturnState.RUNNING
-            ):
-                if result.ok() == TickReturnState.SUCCEEDED:
-                    # untick all children after the one that triggered this
-                    # condition
-                    for untick_child in self.children[index + 1 :]:
-                        result = untick_child.untick()
-                        if result.is_err():
-                            return result
-                return result
+            match child.tick():
+                case Err(e):
+                    return Err(e)
+                case Ok(s):
+                    if s == TickReturnState.RUNNING:
+                        return Ok(s)
+                    if s == TickReturnState.SUCCEEDED:
+                        for untick_child in self.children[index + 1 :]:
+                            match untick_child.untick():
+                                case Err(e):
+                                    return Err(e)
+                                case Ok(_):
+                                    pass
+                        return Ok(s)
+
         # If all children failed, we too fail
         return Ok(TickReturnState.FAILED)
 
     def _do_untick(self) -> Result[UntickReturnState, BehaviorTreeException]:
         for child in self.children:
-            result = child.untick()
-            if result.is_err():
-                return result
+            match child.untick():
+                case Err(e):
+                    return Err(e)
+                case Ok(_):
+                    pass
         return Ok(UntickReturnState.IDLE)
 
     def _do_reset(self) -> Result[None, BehaviorTreeException]:
         for child in self.children:
-            result = child.reset()
-            if result.is_err():
-                return result
+            match child.reset():
+                case Err(e):
+                    return Err(e)
+                case Ok(None):
+                    pass
         return Ok(None)
 
     def _do_shutdown(self) -> Result[None, BehaviorTreeException]:
@@ -227,9 +245,11 @@ class MemoryFallback(FlowControl):
     def _do_setup(self) -> Result[None, BehaviorTreeException]:
         self.last_running_child = 0
         for child in self.children:
-            result = child.setup()
-            if result.is_err():
-                return result
+            match child.setup():
+                case Err(e):
+                    return Err(e)
+                case Ok(None):
+                    pass
         return Ok(None)
 
     def _do_tick(self) -> Result[TickReturnState, BehaviorTreeException]:
@@ -242,45 +262,52 @@ class MemoryFallback(FlowControl):
         if self.state in [TickReturnState.SUCCEEDED, TickReturnState.FAILED]:
             self.last_running_child = 0
             for child in self.children:
-                result = child.reset()
-                if result.is_err():
-                    return result
+                match child.reset():
+                    case Err(e):
+                        return Err(e)
+                    case Ok(None):
+                        pass
 
         # Tick children until one returns SUCCEEDED or RUNNING
         for index, child in enumerate(self.children):
             if index < self.last_running_child:
                 continue
-            result = child.tick()
-            if (
-                result.ok() == TickReturnState.SUCCEEDED
-                or result.ok() == TickReturnState.RUNNING
-            ):
-                if result.ok() == TickReturnState.RUNNING:
-                    self.last_running_child = index
-                elif result.ok() == TickReturnState.SUCCEEDED:
-                    # untick all children after the one that triggered this
-                    # condition
-                    for untick_child in self.children[index + 1 :]:
-                        result = untick_child.untick()
-                        if result.is_err():
-                            return result
-                return result
+            match child.tick():
+                case Err(e):
+                    return Err(e)
+                case Ok(s):
+                    if s == TickReturnState.RUNNING:
+                        self.last_running_child = index
+                        return Ok(s)
+                    if s == TickReturnState.SUCCEEDED:
+                        for untick_child in self.children[index + 1 :]:
+                            match untick_child.untick():
+                                case Err(e):
+                                    return Err(e)
+                                case Ok(_):
+                                    pass
+                        return Ok(s)
+
         # If all children failed, we too fail
         return Ok(TickReturnState.FAILED)
 
     def _do_untick(self) -> Result[UntickReturnState, BehaviorTreeException]:
         for child in self.children:
-            result = child.untick()
-            if result.is_err():
-                return result
+            match child.untick():
+                case Err(e):
+                    return Err(e)
+                case Ok(_):
+                    pass
         self.last_running_child = 0
         return Ok(UntickReturnState.IDLE)
 
     def _do_reset(self) -> Result[None, BehaviorTreeException]:
         for child in self.children:
-            result = child.reset()
-            if result.is_err():
-                return result
+            match child.reset():
+                case Err(e):
+                    return Err(e)
+                case Ok(None):
+                    pass
         self.last_running_child = 0
         return Ok(None)
 
@@ -336,9 +363,7 @@ def calculate_utility_fallback(
             )
             for _ in children
         ]
-        for index, child_bounds_result in enumerate(
-            (child.calculate_utility() for child in children)
-        ):
+        for index, child in enumerate(children):
             # If any child cannot execute at all, the fallback cannot
             # execute and won't provide a utility estimate
             #
@@ -346,12 +371,13 @@ def calculate_utility_fallback(
             # theory, as long as it isn't the first child, the
             # fallback could still succeed...
             #
-            if child_bounds_result.is_err():
-                return child_bounds_result
-
-            child_bounds: UtilityBounds = child_bounds_result.ok()
-            if not child_bounds.can_execute:
-                return Ok(UtilityBounds(can_execute=False))
+            match child.calculate_utility():
+                case Err(e):
+                    return Err(e)
+                case Ok(b):
+                    if not b.can_execute:
+                        return Ok(UtilityBounds(can_execute=False))
+                    child_bounds = b
 
             # Update the estimates and has_bound values. logical
             # and means a single child with an unset bound causes
