@@ -142,12 +142,13 @@ def define_bt_node(node_config: NodeConfig) -> Callable[[Type["Node"]], Type["No
         # Merge supplied node config with those of base classes
         for base in node_class.__bases__:
             if hasattr(base, "_node_config") and base._node_config:
-                config_extend_result = node_config.extend(base._node_config)
-                if config_extend_result.is_err():
-                    rclpy.logging.get_logger(node_class.__name__).error(
-                        f"Node config could not be extended: {config_extend_result.unwrap_err()}"
-                    )
-        node_class._node_config = node_config
+                match node_config.extend(base._node_config):
+                    case Err(e):
+                        rclpy.logging.get_logger(node_class.__name__).error(
+                            f"Node config could not be extended: {e}"
+                        )
+                    case Ok(None):
+                        node_class._node_config = node_config
 
         if inspect.isabstract(node_class):
             # Don't register abstract classes
@@ -394,15 +395,17 @@ class Node(object, metaclass=NodeMeta):
         self.node_config = deepcopy(self._node_config)
 
         self.options = NodeDataMap(name="options")
-        register_result = self._register_node_data(
+        match self._register_node_data(
             source_map=self.node_config.options,
             target_map=self.options,
             values=options,
             permissive=self.permissive,
-        )
-        if register_result.is_err():
-            raise register_result.unwrap_err()
-
+        ):
+            case Err(e):
+                raise e
+            case Ok(None):
+                pass
+        
         # Warn about unset options, ignore missing optional_options
         unset_option_keys = [
             key for key in self.options if options is None or key not in options
@@ -426,19 +429,23 @@ class Node(object, metaclass=NodeMeta):
                 raise ValueError(f"Extra options: {str(extra_option_keys)}")
 
         self.inputs = NodeDataMap(name="inputs")
-        register_result = self._register_node_data(
+        match self._register_node_data(
             source_map=self.node_config.inputs, target_map=self.inputs
-        )
-        if register_result.is_err():
-            raise register_result.unwrap_err()
+        ):
+            case Err(e):
+                raise e
+            case Ok(None):
+                pass
 
         self.outputs = NodeDataMap(name="outputs")
-        register_result = self._register_node_data(
+        match self._register_node_data(
             source_map=self.node_config.outputs, target_map=self.outputs
-        )
-        if register_result.is_err():
-            raise register_result.unwrap_err()
-
+        ):
+            case Err(e):
+                raise e
+            case Ok(None):
+                pass
+        
         # Don't setup automatically - nodes should be available as pure data
         # containers before the user decides to call setup() themselves!
 
@@ -601,13 +608,13 @@ class Node(object, metaclass=NodeMeta):
             if handle_input_result.is_err():
                 self.state = BTNodeState.BROKEN
                 return Err(BehaviorTreeException(handle_input_result.err()))
-            tick_result = self._do_tick()
-            if tick_result.is_ok():
-                self.state = tick_result.unwrap()
-            else:
-                self.state = BTNodeState.BROKEN
-                return tick_result
-
+            match self._do_tick():
+                case Err(e):
+                    self.state = BTNodeState.BROKEN
+                    return Err(e)
+                case Ok(s):
+                    self.state = s
+            
             # Inputs are updated by other nodes' outputs, i.e. some time after
             # we use them here. In some cases, inputs might be connected to
             # child outputs (or even our own). If they are, update information
@@ -617,7 +624,7 @@ class Node(object, metaclass=NodeMeta):
 
             self._handle_outputs()
 
-            return tick_result
+            return Ok(self.state)
 
     @typechecked
     def check_if_in_invalid_state(
@@ -669,15 +676,15 @@ class Node(object, metaclass=NodeMeta):
                 return Err(
                     BehaviorTreeException("Trying to untick uninitialized node!")
                 )
-            untick_result = self._do_untick()
-            if untick_result.is_ok():
-                self.state = untick_result.unwrap()
-            else:
-                self.state = BTNodeState.BROKEN
-                return untick_result
+            match self._do_untick():
+                case Err(e):
+                    self.state = BTNodeState.BROKEN
+                    return Err(e)
+                case Ok(s):
+                    self.state = s
 
             self.outputs.reset_updated()
-            return untick_result
+            return Ok(self.state)
 
     @abc.abstractmethod
     @typechecked
@@ -728,14 +735,14 @@ class Node(object, metaclass=NodeMeta):
                 self.outputs[output_key] = None
             self.outputs.reset_updated()
 
-            reset_result = self._do_reset()
-            if reset_result.is_ok():
-                self.state = BTNodeState.IDLE
-            else:
-                self.state = BTNodeState.BROKEN
-                return reset_result
+            match self._do_reset():
+                case Err(e):
+                    self.state = BTNodeState.BROKEN
+                    return Err(e)
+                case Ok(None):
+                    self.state = BTNodeState.IDLE
 
-            return reset_result
+            return Ok(None)
 
     @abc.abstractmethod
     @typechecked
@@ -776,7 +783,7 @@ class Node(object, metaclass=NodeMeta):
         if self.debug_manager:
             report_state = self.debug_manager.report_state(self, "SHUTDOWN")
         with report_state:
-            error_result = None
+            error = None
             if self.state == BTNodeState.SHUTDOWN:
                 self.loginfo(
                     "Not calling shutdown method, node has not been initialized yet"
@@ -785,31 +792,36 @@ class Node(object, metaclass=NodeMeta):
                 # Call shutdown on all children - this should only set
                 # their state to shutdown
                 for child in self.children:
-                    shutdown_result = child.shutdown()
-                    if shutdown_result.is_err():
-                        self.logwarn(
-                            f"Node {child.name} raised the following error during shutdown"
-                            "Continuing to shutdown other nodes"
-                            f"{shutdown_result.unwrap_err()}"
-                        )
-                        error_result = shutdown_result
+                    match child.shutdown():
+                        case Err(e):
+                            self.logwarn(
+                                f"Node {child.name} raised the following error during shutdown"
+                                f"Continuing to shutdown other nodes\n{e}"
+                            )
+                            error = e
+                        case Ok(None):
+                            pass
+                if error is not None:
+                    return Err(error)
+                return Ok(None)
 
-            shutdown_result = self._do_shutdown()
-            if shutdown_result.is_ok():
-                self.state = BTNodeState.SHUTDOWN
-            else:
-                self.state = BTNodeState.BROKEN
-                error_result = shutdown_result
+            match self._do_shutdown():
+                case Err(e):
+                    self.state = BTNodeState.BROKEN
+                    error = e
+                case Ok(None):
+                    self.state = BTNodeState.SHUTDOWN
 
             for child in self.children:
-                shutdown_result = child.shutdown()
-                if shutdown_result.is_err():
-                    self.logwarn(
-                        f"Node {child.name} raised the following error during shutdown"
-                        "Continuing to shutdown other nodes"
-                        f"{shutdown_result.unwrap_err()}"
-                    )
-                    error_result = shutdown_result
+                match child.shutdown():
+                    case Err(e):
+                        self.logwarn(
+                            f"Node {child.name} raised the following error during shutdown"
+                            f"Continuing to shutdown other nodes\n{e}"
+                        )
+                        error = e
+                    case Ok(None):
+                        pass
 
             unshutdown_children = [
                 f"{child.name} ({type(child).__name__}), state: {child.state}"
@@ -823,10 +835,10 @@ class Node(object, metaclass=NodeMeta):
                     f"{unshutdown_children}"
                 )
 
-            if error_result is not None:
-                return error_result
+            if error is not None:
+                return Err(error)
 
-            return shutdown_result
+            return Ok(None)
 
     @abc.abstractmethod
     @typechecked
@@ -962,11 +974,11 @@ class Node(object, metaclass=NodeMeta):
         for key, data_type in {
             k: v for (k, v) in source_map.items() if not isinstance(v, OptionRef)
         }.items():
-            if key in target_map:
-                return Err(NodeConfigError(f"Duplicate data name: {key}"))
-            add_result = target_map.add(key, NodeData(data_type=data_type))
-            if add_result.is_err():
-                return Err(NodeConfigError(add_result.unwrap_err()))
+            match target_map.add(key, NodeData(data_type=data_type)):
+                case Err(e):
+                    return Err(NodeConfigError(e))
+                case Ok(None):
+                    pass
             if values is not None and key in values:
                 try:
                     target_map[key] = values[key]
@@ -1044,11 +1056,6 @@ class Node(object, metaclass=NodeMeta):
         for key, data_type in {
             k: v for (k, v) in source_map.items() if isinstance(v, OptionRef)
         }.items():
-            if key in target_map:
-                return Err(
-                    NodeConfigError(f"Duplicate {target_map.name} data name: {key}")
-                )
-
             if data_type.option_key not in self.options:
                 return Err(
                     NodeConfigError(
@@ -1070,11 +1077,13 @@ class Node(object, metaclass=NodeMeta):
                         f'"{data_type.option_key}" that does not contain a type!'
                     )
                 )
-            add_result = target_map.add(
+            match target_map.add(
                 key, NodeData(data_type=self.options[data_type.option_key])
-            )
-            if add_result.is_err():
-                return Err(NodeConfigError(add_result.unwrap_err()))
+            ):
+                case Err(e):
+                    return Err(NodeConfigError(e))
+                case Ok(None):
+                    pass
             if values is not None and key in values:
                 try:
                     target_map[key] = values[key]
@@ -1560,11 +1569,11 @@ class Node(object, metaclass=NodeMeta):
                     f"with the same target {wiring.target.data_kind}[{wiring.target.data_key}]"
                 )
 
-        source_map_result = self.get_data_map(wiring.source.data_kind)
-        if source_map_result.is_err():
-            return Err(BehaviorTreeException(str(source_map_result.unwrap_err())))
-
-        source_map = source_map_result.unwrap()
+        match self.get_data_map(wiring.source.data_kind):
+            case Err(e):
+                return Err(BehaviorTreeException(e))
+            case Ok(m):
+                source_map = m
 
         if wiring.source.data_key not in source_map:
             return Err(
@@ -1640,11 +1649,12 @@ class Node(object, metaclass=NodeMeta):
                 )
             )
 
-        source_map_result = source_node.get_data_map(wiring.source.data_kind)
-        if source_map_result.is_err():
-            return Err(BehaviorTreeException(str(source_map_result.unwrap_err())))
+        match source_node.get_data_map(wiring.source.data_kind):
+            case Err(e):
+                return Err(BehaviorTreeException(e))
+            case Ok(m):
+                source_map = m
 
-        source_map = source_map_result.unwrap()
         if wiring.source.data_key not in source_map:
             return Err(
                 BehaviorTreeException(
@@ -1653,10 +1663,11 @@ class Node(object, metaclass=NodeMeta):
                 )
             )
 
-        target_map_result = self.get_data_map(wiring.target.data_kind)
-        if target_map_result.is_err():
-            return Err(BehaviorTreeException(str(target_map_result.unwrap_err())))
-        target_map = target_map_result.unwrap()
+        match self.get_data_map(wiring.target.data_kind):
+            case Err(e):
+                return Err(BehaviorTreeException(e))
+            case Ok(m):
+                target_map = m
 
         if wiring.target.data_key not in target_map:
             return Err(
@@ -1697,10 +1708,11 @@ class Node(object, metaclass=NodeMeta):
                     f"({wiring.source.node_name})"
                 )
             )
-        source_map_result = self.get_data_map(wiring.source.data_kind)
-        if source_map_result.is_err():
-            return Err(BehaviorTreeException(str(source_map_result.unwrap_err())))
-        source_map = source_map_result.unwrap()
+        match self.get_data_map(wiring.source.data_kind):
+            case Err(e):
+                return Err(BehaviorTreeException(e))
+            case Ok(m):
+                source_map = m
 
         if wiring.source.data_key not in source_map:
             return Err(
@@ -1828,10 +1840,11 @@ class Node(object, metaclass=NodeMeta):
         data_list: list[WiringData] = []
         for wiring, _, exp_type in self.subscribers:
             # Since we iterate subscribers, `wiring.source` should refer to self.
-            source_map_result = self.get_data_map(wiring.source.data_kind)
-            if source_map_result.is_err():
-                continue
-            source_map = source_map_result.unwrap()
+            match self.get_data_map(wiring.source.data_kind):
+                case Err(e):
+                    continue
+                case Ok(m):
+                    source_map = m
             key = wiring.source.data_key
             if not source_map.is_updated(key):
                 continue  # Don't publish stale data

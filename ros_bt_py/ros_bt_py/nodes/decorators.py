@@ -52,16 +52,17 @@ class IgnoreFailure(Decorator):
         return Ok(None)
 
     def _do_tick(self) -> Result[TickReturnState, BehaviorTreeException]:
-        for child in self.children:
-            result = child.tick()
-            if result.is_err():
-                return result
-            if result.unwrap() == TickReturnState.FAILED:
-                return Ok(TickReturnState.SUCCEEDED)
-            return result
-
-        # Succeed if we have no children
-        return Ok(TickReturnState.SUCCEEDED)
+        if len(self.children) == 0:
+            return Ok(TickReturnState.SUCCEEDED)
+        
+        match self.children[0].tick():
+            case Err(e):
+                return Err(e)
+            case Ok(s):
+                if s == TickReturnState.FAILED:
+                    return Ok(TickReturnState.SUCCEEDED)
+                return Ok(s)
+        
 
     def _do_shutdown(self) -> Result[None, BehaviorTreeException]:
         return Ok(None)
@@ -95,20 +96,19 @@ class IgnoreRunning(Decorator):
         return Ok(None)
 
     def _do_tick(self) -> Result[TickReturnState, BehaviorTreeException]:
-        for child in self.children:
-            result = child.tick()
-            if result.is_err():
-                return result
-
-            if result.unwrap() == TickReturnState.RUNNING:
-                if self.options["running_is_success"]:
-                    return Ok(TickReturnState.SUCCEEDED)
-                else:
-                    return Ok(TickReturnState.FAILED)
-            return result
-
-        # Fails if we have no children
-        return Ok(TickReturnState.FAILED)
+        if len(self.children) == 0:
+            return Ok(TickReturnState.FAILED)
+        
+        match self.children[0].tick():
+            case Err(e):
+                return Err(e)
+            case Ok(s):
+                if s == TickReturnState.RUNNING:
+                    if self.options["running_is_success"]:
+                        return Ok(TickReturnState.SUCCEEDED)
+                    else:
+                        return Ok(TickReturnState.FAILED)
+                return Ok(s)
 
     def _do_shutdown(self) -> Result[None, BehaviorTreeException]:
         return Ok(None)
@@ -141,16 +141,16 @@ class IgnoreSuccess(Decorator):
         return Ok(None)
 
     def _do_tick(self) -> Result[TickReturnState, BehaviorTreeException]:
-        for child in self.children:
-            result = child.tick()
-            if result.is_err():
-                return result
-            if result.unwrap() == TickReturnState.SUCCEEDED:
-                return Ok(TickReturnState.FAILED)
-            return result
-
-        # Fails if we have no children
-        return Ok(TickReturnState.FAILED)
+        if len(self.children) == 0:
+            return Ok(TickReturnState.FAILED)
+        
+        match self.children[0].tick():
+            case Err(e):
+                return Err(e)
+            case Ok(s):
+                if s == TickReturnState.SUCCEEDED:
+                    return Ok(TickReturnState.FAILED)
+                return Ok(s)
 
     def _do_shutdown(self) -> Result[None, BehaviorTreeException]:
         return Ok(None)
@@ -185,16 +185,16 @@ class UntilSuccess(Decorator):
         return Ok(None)
 
     def _do_tick(self) -> Result[TickReturnState, BehaviorTreeException]:
-        for child in self.children:
-            result = child.tick()
-            if result.is_err():
-                return result
-            if result.unwrap() == TickReturnState.FAILED:
-                return Ok(TickReturnState.RUNNING)
-            return result
-
-        # Succeed if we have no children
-        return Ok(TickReturnState.SUCCEEDED)
+        if len(self.children) == 0:
+            return Ok(TickReturnState.SUCCEEDED)
+        
+        match self.children[0].tick():
+            case Err(e):
+                return Err(e)
+            case Ok(s):
+                if s == TickReturnState.FAILED:
+                    return Ok(TickReturnState.RUNNING)
+                return Ok(s)
 
     def _do_shutdown(self) -> Result[None, BehaviorTreeException]:
         return Ok(None)
@@ -229,19 +229,18 @@ class Inverter(Decorator):
         return Ok(None)
 
     def _do_tick(self) -> Result[TickReturnState, BehaviorTreeException]:
-        for child in self.children:
-            result = child.tick()
-            if result.is_err():
-                return result
-
-            if result.unwrap() == TickReturnState.FAILED:
-                return Ok(TickReturnState.SUCCEEDED)
-            elif result.unwrap() == TickReturnState.SUCCEEDED:
-                return Ok(TickReturnState.FAILED)
-            return result
-
-        # Succeed if we have no children
-        return Ok(TickReturnState.SUCCEEDED)
+        if len(self.children) == 0:
+            return Ok(TickReturnState.SUCCEEDED)
+        
+        match self.children[0].tick():
+            case Err(e):
+                return Err(e)
+            case Ok(s):
+                if s == TickReturnState.SUCCEEDED:
+                    return Ok(TickReturnState.FAILED)
+                if s == TickReturnState.FAILED:
+                    return Ok(TickReturnState.SUCCEEDED)
+                return Ok(s)
 
     def _do_shutdown(self) -> Result[None, BehaviorTreeException]:
         return Ok(None)
@@ -282,25 +281,26 @@ class Retry(Decorator):
         return Ok(None)
 
     def _do_tick(self) -> Result[TickReturnState, BehaviorTreeException]:
-        for child in self.children:
-            result = child.tick()
+        if len(self.children) == 0:
+            return Ok(TickReturnState.SUCCEEDED)
+        
+        match self.children[0].tick():
+            case Err(e):
+                return Err(e)
+            case Ok(s):
+                if s == TickReturnState.FAILED:
+                    if self._retry_count < self.options["num_retries"]:
+                        self._retry_count += 1
 
-            if result.is_ok() and result.unwrap() == TickReturnState.FAILED:
-                if self._retry_count < self.options["num_retries"]:
-                    self._retry_count += 1
+                        reset_result = child.reset()
+                        if reset_result.is_err():
+                            return reset_result
 
-                    reset_result = child.reset()
-                    if reset_result.is_err():
-                        return reset_result
-
-                    return Ok(TickReturnState.RUNNING)
-                else:
-                    self._retry_count = 0
-                    return Ok(TickReturnState.FAILED)
-            return result
-
-        # Succeed if we have no children
-        return Ok(TickReturnState.SUCCEEDED)
+                        return Ok(TickReturnState.RUNNING)
+                    else:
+                        self._retry_count = 0
+                        return Ok(TickReturnState.FAILED)
+                return Ok(s)
 
     def _do_shutdown(self) -> Result[None, BehaviorTreeException]:
         return Ok(None)
@@ -344,26 +344,25 @@ class Repeat(Decorator):
         return Ok(None)
 
     def _do_tick(self) -> Result[TickReturnState, BehaviorTreeException]:
-        for child in self.children:
-            result = child.tick()
-            if result.is_err():
-                return result
-
-            if result.unwrap() == TickReturnState.FAILED:
-                return Ok(TickReturnState.FAILED)
-            elif result.unwrap() == TickReturnState.SUCCEEDED:
-                if self._repeat_count < self.options["num_repeats"]:
-                    self._repeat_count += 1
-                    reset_result = child.reset()
-                    if reset_result.is_err():
-                        return reset_result
-                    return Ok(TickReturnState.RUNNING)
-                else:
-                    return Ok(TickReturnState.SUCCEEDED)
-            return result
-
-        # Succeed if we have no children
-        return Ok(TickReturnState.SUCCEEDED)
+        if len(self.children) == 0:
+            return Ok(TickReturnState.SUCCEEDED)
+        
+        match self.children[0].tick():
+            case Err(e):
+                return Err(e)
+            case Ok(s):
+                if s == TickReturnState.SUCCEEDED:
+                    if self._repeat_count < self.options["num_repeats"]:
+                        self._repeat_count += 1
+                        match self.children[0].reset():
+                            case Err(e):
+                                return Err(e)
+                            case Ok(None):
+                                pass
+                        return Ok(TickReturnState.RUNNING)
+                    else:
+                        return Ok(TickReturnState.SUCCEEDED)
+                return Ok(s)
 
     def _do_shutdown(self) -> Result[None, BehaviorTreeException]:
         return Ok(None)
@@ -414,27 +413,25 @@ class RepeatNoAutoReset(Repeat):
             self._repeat_count = 0
             self.inputs["reset"] = False
 
-        # Only TICK the children
-        if self._repeat_count < self.options["num_repeats"]:
-            for child in self.children:
-                result = child.tick()
-                if result.is_err():
-                    return result
-                if result.unwrap() == TickReturnState.FAILED:
-                    return Ok(TickReturnState.FAILED)
-                elif result.unwrap() == TickReturnState.SUCCEEDED:
+        if len(self.children) == 0:
+            return Ok(TickReturnState.SUCCEEDED)
+        
+        match self.children[0].tick():
+            case Err(e):
+                return Err(e)
+            case Ok(s):
+                if s == TickReturnState.SUCCEEDED:
                     if self._repeat_count < self.options["num_repeats"]:
                         self._repeat_count += 1
-                        reset_result = child.reset()
-                        if reset_result.is_err():
-                            return reset_result
+                        match self.children[0].reset():
+                            case Err(e):
+                                return Err(e)
+                            case Ok(None):
+                                pass
                         return Ok(TickReturnState.RUNNING)
                     else:
                         return Ok(TickReturnState.SUCCEEDED)
-                return result
-
-        # Succeed if we have no children
-        return Ok(TickReturnState.SUCCEEDED)
+                return Ok(s)
 
     def _do_reset(self) -> Result[None, BehaviorTreeException]:
         self._received_in = False
