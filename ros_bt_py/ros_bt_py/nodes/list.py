@@ -190,8 +190,7 @@ class IterateList(Decorator):
     def _do_setup(self) -> Result[None, BehaviorTreeException]:
         self.reset_counter()
         if len(self.children) == 1:
-            result = self.children[0].setup()
-            return result
+            return self.children[0].setup()
         return Ok(None)
 
     def reset_counter(self):
@@ -215,26 +214,24 @@ class IterateList(Decorator):
             if self.counter == len(self.inputs["list"]):
                 self.reset_counter()
                 return Ok(TickReturnState.SUCCEEDED)
-        else:
-            if self.output_changed:
-                # let one tick go for the tree to digest our new output before childs are ticked
-                self.output_changed = False
-                return Ok(TickReturnState.RUNNING)
-            for child in self.children:
-                result = child.tick()
-                if result.is_err():
-                    return result
-                if result.ok() == TickReturnState.SUCCEEDED:
+            return Ok(TickReturnState.RUNNING)
+
+        if self.output_changed:
+            # let one tick go for the tree to digest our new output before childs are ticked
+            self.output_changed = False
+            return Ok(TickReturnState.RUNNING)
+        
+        match self.children[0].tick():
+            case Err(e):
+                return Err(e)
+            case Ok(s):
+                if s == TickReturnState.SUCCEEDED:
                     # we only increment the counter when the child succeeded
                     self.counter += 1
                     self.output_changed = True
                     if self.counter == len(self.inputs["list"]):
                         self.reset_counter()
-                        return Ok(TickReturnState.SUCCEEDED)
-                elif result.ok() == TickReturnState.FAILED:
-                    # child failed: we failed
-                    return Ok(TickReturnState.FAILED)
-        return Ok(TickReturnState.RUNNING)
+                return Ok(s)
 
     def _do_untick(self) -> Result[UntickReturnState, BehaviorTreeException]:
         for child in self.children:

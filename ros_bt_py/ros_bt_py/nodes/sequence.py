@@ -73,9 +73,11 @@ class Sequence(FlowControl):
     @typechecked
     def _do_setup(self) -> Result[None, BehaviorTreeException]:
         for child in self.children:
-            child_result = child.setup()
-            if child_result.is_err():
-                return child_result
+            match child.setup():
+                case Err(e):
+                    return Err(e)
+                case Ok(None):
+                    pass
         return Ok(None)
 
     @typechecked
@@ -87,45 +89,46 @@ class Sequence(FlowControl):
         # If we've previously succeeded or failed, untick all children
         if self.state in [TickReturnState.SUCCEEDED, TickReturnState.FAILED]:
             for child in self.children:
-                child_reset_result = child.reset()
-                if child_reset_result.is_err():
-                    return Err(child_reset_result.unwrap_err())
+                match child.reset():
+                    case Err(e):
+                        return Err(e)
+                    case Ok(None):
+                        pass
 
         # Tick children until one returns FAILED or RUNNING
-        result = TickReturnState.FAILED
         for index, child in enumerate(self.children):
-            result = child.tick()
-            if result.is_err():
-                return result
-            else:
-                state = result.unwrap()
-            if state != TickReturnState.SUCCEEDED:
-                # For all states other than RUNNING...
-                if state != TickReturnState.RUNNING:
-                    # ...untick all children after the one that hasn't
-                    # succeeded
-                    for untick_child in self.children[index + 1 :]:
-                        untick_result = untick_child.untick()
-                        if untick_result.is_err():
-                            return Err(untick_result.unwrap_err())
-                    return Ok(TickReturnState.FAILED)
-                else:
-                    return Ok(TickReturnState.RUNNING)
+            match child.tick():
+                case Err(e):
+                    return Err(e)
+                case Ok(s):
+                    if s == TickReturnState.FAILED:
+                        for untick_child in self.children[index + 1 :]:
+                            match untick_child.untick():
+                                case Err(e):
+                                    return Err(e)
+                                case Ok(_):
+                                    pass
+                    if s != TickReturnState.SUCCEEDED:
+                        return Ok(s)
 
         return Ok(TickReturnState.SUCCEEDED)
 
     def _do_untick(self) -> Result[UntickReturnState, BehaviorTreeException]:
         for child in self.children:
-            untick_result = child.untick()
-            if untick_result.is_err():
-                return untick_result
+            match child.untick():
+                case Err(e):
+                    return Err(e)
+                case Ok(_):
+                    pass
         return Ok(UntickReturnState.IDLE)
 
     def _do_reset(self) -> Result[None, BehaviorTreeException]:
         for child in self.children:
-            reset_result = child.reset()
-            if reset_result.is_err():
-                return reset_result
+            match child.reset():
+                case Err(e):
+                    return Err(e)
+                case Ok(None):
+                    pass
         return Ok(None)
 
     def _do_shutdown(self) -> Result[None, BehaviorTreeException]:
@@ -180,9 +183,11 @@ class MemorySequence(FlowControl):
     def _do_setup(self) -> Result[None, BehaviorTreeException]:
         self.last_running_child = 0
         for child in self.children:
-            child_result = child.setup()
-            if child_result.is_err():
-                return child_result
+            match child.setup():
+                case Err(e):
+                    return Err(e)
+                case Ok(None):
+                    pass
         return Ok(None)
 
     def _do_tick(self) -> Result[TickReturnState, BehaviorTreeException]:
@@ -195,48 +200,53 @@ class MemorySequence(FlowControl):
         if self.state in [TickReturnState.SUCCEEDED, TickReturnState.FAILED]:
             self.last_running_child = 0
             for child in self.children:
-                child_reset_result = child.reset()
-                if child_reset_result.is_err():
-                    return Err(child_reset_result.unwrap_err())
+                match child.reset():
+                    case Err(e):
+                        return Err(e)
+                    case Ok(None):
+                        pass
 
         # Tick children until one returns FAILED or RUNNING
         for index, child in enumerate(self.children):
             if index < self.last_running_child:
                 continue
 
-            result = child.tick()
-            if result.is_err():
-                return result
-            else:
-                state = result.unwrap()
-
-            if state != TickReturnState.SUCCEEDED:
-                if state == TickReturnState.RUNNING:
-                    self.last_running_child = index
-                else:
-                    # For all states other than RUNNING, untick all
-                    # children after the one that hasn't succeeded
-                    for untick_child in self.children[index + 1 :]:
-                        child_untick_result = untick_child.untick()
-                        if child_untick_result.is_err():
-                            return Err(child_untick_result.unwrap_err())
-                return result
+            match child.tick():
+                case Err(e):
+                    return Err(e)
+                case Ok(s):
+                    if s == TickReturnState.RUNNING:
+                        self.last_running_child = index
+                    if s == TickReturnState.FAILED:
+                        for untick_child in self.children[index + 1 :]:
+                            match untick_child.untick():
+                                case Err(e):
+                                    return Err(e)
+                                case Ok(_):
+                                    pass
+                    if s != TickReturnState.SUCCEEDED:
+                        return Ok(s)
+        
         # If all children succeeded, we too succeed
         return Ok(TickReturnState.SUCCEEDED)
 
     def _do_untick(self) -> Result[UntickReturnState, BehaviorTreeException]:
         for child in self.children:
-            untick_result = child.untick()
-            if untick_result.is_err():
-                return untick_result
+            match child.untick():
+                case Err(e):
+                    return Err(e)
+                case Ok(_):
+                    pass
         self.last_running_child = 0
         return Ok(UntickReturnState.IDLE)
 
     def _do_reset(self) -> Result[None, BehaviorTreeException]:
         for child in self.children:
-            reset_result = child.reset()
-            if reset_result.is_err():
-                return reset_result
+            match child.reset():
+                case Err(e):
+                    return Err(e)
+                case Ok(None):
+                    pass
         self.last_running_child = 0
         return Ok(None)
 

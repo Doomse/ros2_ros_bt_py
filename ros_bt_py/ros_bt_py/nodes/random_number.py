@@ -48,10 +48,7 @@ class RandomInt(Leaf):
     """Provides a pseudo-random integer in range min <= random_number <= max."""
 
     def _do_setup(self) -> Result[None, BehaviorTreeException]:
-        validate_result = validate_range(self.options["min"], self.options["max"])
-        if validate_result.is_err():
-            return Err(validate_result.unwrap_err())
-        return Ok(None)
+        return validate_range(self.options["min"], self.options["max"])
 
     def _do_tick(self) -> Result[TickReturnState, BehaviorTreeException]:
         self.outputs["random_number"] = random.randrange(
@@ -85,9 +82,11 @@ class RandomIntInputs(Leaf):
         return Ok(None)
 
     def _do_tick(self) -> Result[TickReturnState, BehaviorTreeException]:
-        validate_result = validate_range(self.inputs["min"], self.inputs["max"])
-        if validate_result.is_err():
-            return Err(validate_result.unwrap_err())
+        match validate_range(self.inputs["min"], self.inputs["max"]):
+            case Err(e):
+                return Err(e)
+            case Ok(None):
+                pass
         self.outputs["random_number"] = random.randrange(
             self.inputs["min"], self.inputs["max"] + 1
         )
