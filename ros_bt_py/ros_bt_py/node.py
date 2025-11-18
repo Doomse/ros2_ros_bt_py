@@ -1191,8 +1191,6 @@ class Node(object, metaclass=NodeMeta):
             return Ok(self.inputs)
         if data_kind == NodeDataLocation.OUTPUT_DATA:
             return Ok(self.outputs)
-        if data_kind == NodeDataLocation.OPTION_DATA:
-            return Ok(self.options)
 
         return Err(
             KeyError(

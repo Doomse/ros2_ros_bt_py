@@ -849,15 +849,6 @@ class TreeManager:
 
         tree.tree_id = uuid_to_ros(self.tree_id)
 
-        for public_datum in tree.public_node_data:
-            if public_datum.data_kind == NodeDataLocation.OPTION_DATA:
-                response.success = False
-                response.error_message = (
-                    "public_node_data: option values cannot be public!"
-                )
-
-                return response
-
         try:
             # Clear existing tree, then replace it with the message's contents
             self.clear(None, ClearTree.Response())
