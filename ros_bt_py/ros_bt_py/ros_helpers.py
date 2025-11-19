@@ -42,22 +42,6 @@ from ros_bt_py_interfaces.msg import MessageChannel, MessageChannels
 ROS_UUID = str
 
 
-class LoggerLevel(object):
-    """Data class containing a logging level."""
-
-    def __init__(self, logger_level=rclpy.logging.LoggingSeverity.INFO):
-        """Initialize a new LoggerLevel class."""
-        self.logger_level = logger_level
-
-
-class EnumValue(object):
-    """Data class containing an enum value."""
-
-    def __init__(self, enum_value=""):
-        """Initialize a new EnumValue class."""
-        self.enum_value = enum_value
-
-
 def ros_to_uuid(ros_uuid_msg: ROS_UUID) -> Result[uuid.UUID, str]:
     try:
         return Ok(uuid.UUID(ros_uuid_msg))

@@ -118,10 +118,6 @@ def get_default_value(data_type: Any, ros: bool = False) -> Any:
         return {}
     elif data_type is OrderedDict:
         return OrderedDict()
-    elif data_type is LoggerLevel:
-        return LoggerLevel()
-    elif data_type is EnumValue:
-        return EnumValue()
     elif ros:
         return data_type()
     else:
