@@ -64,6 +64,7 @@ class NodeConfig(object):
         inputs: Dict[str, Any],
         outputs: Dict[str, Any],
         max_children: Optional[int],
+        default_values: Optional[dict[str, Any]] = None,
         optional_options: Optional[List[str]] = None,
         version: str = "",
         tags: Optional[List[str]] = None,
@@ -95,6 +96,11 @@ class NodeConfig(object):
         The maximum number of children this node type is allowed to
         have.  If this is None, the node type supports any amount of
         children.
+
+        :type default_values: dict[str, Any]
+        :param default_values:
+
+        Map for supplying custom default values for node options
         """
         self.inputs = inputs
         self.outputs = outputs
@@ -105,6 +111,10 @@ class NodeConfig(object):
             optional_options = []
         self.optional_options = optional_options
         self.version = version
+
+        if default_values is None:
+            default_values = {}
+        self.default_values = default_values
 
         if tags is None:
             tags = []
@@ -128,6 +138,7 @@ class NodeConfig(object):
             and self.options == other.options
             and self.max_children == other.max_children
             and self.optional_options == other.optional_options
+            and self.default_values == other.default_values
             and self.version == other.version
         )
 
@@ -173,6 +184,9 @@ class NodeConfig(object):
                 continue
             else:
                 self.optional_options.append(optional_option)
+
+        for option, default_value in other.default_values.items():
+            self.default_values[option] = default_value
 
         if duplicate_inputs or duplicate_outputs or duplicate_options:
             msg = "Duplicate keys: "

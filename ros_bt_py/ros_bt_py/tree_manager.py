@@ -280,11 +280,14 @@ def get_available_nodes(
             for (name, type_or_ref) in data_map.items()
         ]
 
-    def to_node_option(data_map):
-        return [
-            NodeOption(key=name, serialized_type=json_encode(type_or_ref))
-            for (name, type_or_ref) in data_map.items()
-        ]
+    def to_node_option(data_map, value_map) -> list[NodeOption]:
+        opts = []
+        for name, type_or_ref in data_map.items():
+            opt = NodeOption(key=name, serialized_type=json_encode(type_or_ref))
+            if name in value_map:
+                opt.serialized_value = json_encode(value_map[name])
+            opts.append(opt)
+        return opts
 
     response.available_nodes = []
     for module, nodes in Node.node_classes.items():
@@ -304,7 +307,10 @@ def get_available_nodes(
                         node_class=class_name,
                         version=node_class._node_config.version,
                         max_children=max_children,
-                        options=to_node_option(node_class._node_config.options),
+                        options=to_node_option(
+                            node_class._node_config.options,
+                            node_class._node_config.default_values,
+                        ),
                         inputs=to_node_io(node_class._node_config.inputs),
                         outputs=to_node_io(node_class._node_config.outputs),
                         doc=str(doc),
