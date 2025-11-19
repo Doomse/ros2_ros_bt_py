@@ -407,20 +407,17 @@ class Node(object, metaclass=NodeMeta):
             raise register_result.unwrap_err()
 
         # Warn about unset options, ignore missing optional_options
-        unset_option_keys = [
-            key for key in self.options if options is None or key not in options
-        ]
-        if unset_option_keys:
-            optional_keys = []
-            for key in unset_option_keys:
-                if key in self.node_config.optional_options:
-                    optional_keys.append(key)
-            if unset_option_keys == optional_keys:
-                rclpy.logging.get_logger(self.name).warn(
-                    f"missing optional keys: {optional_keys}"
-                )
-            else:
-                raise ValueError(f"Missing options: {str(unset_option_keys)}")
+        unset_options = []
+        for key in self.options:
+            if key in options:
+                continue
+            if key in self.node_config.optional_options:
+                continue
+            if key in self.node_config.input_options:
+                continue
+            unset_options.append(key)
+        if unset_options:
+            raise ValueError(f"Missing options: {str(unset_options)}")
 
         # Warn about extra options
         if options is not None:
@@ -434,6 +431,12 @@ class Node(object, metaclass=NodeMeta):
         )
         if register_result.is_err():
             raise register_result.unwrap_err()
+
+        # Register a callback that transfers option values to input values
+        # using the transformation supplied in the node config
+        for key, mapping in self.node_config.input_options.items():
+            setter = self.inputs.get_callback(key)
+            self.options.subscribe(key, lambda x: setter(mapping(x)))
 
         self.outputs = NodeDataMap(name="outputs")
         register_result = self._register_node_data(
@@ -509,6 +512,9 @@ class Node(object, metaclass=NodeMeta):
                         f"but node {self.name} is in state {self.state}"
                     )
                 )
+            # Since options are static, calling their callbacks once in setup seems sufficient
+            self.options.handle_subscriptions()
+
             setup_result = self._do_setup()
             self._setup_called = True
 
@@ -580,20 +586,6 @@ class Node(object, metaclass=NodeMeta):
         with report_tick:
             if self.state is BTNodeState.UNINITIALIZED:
                 return Err(BehaviorTreeException("Trying to tick uninitialized node!"))
-
-            unset_options: List[str] = []
-            for option_name in self.options:
-                if (
-                    not self.options.is_updated(option_name)
-                    and option_name not in self.node_config.optional_options
-                ):
-                    unset_options.append(option_name)
-            if unset_options:
-                msg = f"Trying to tick node with unset options: {str(unset_options)}"
-                self.logwarn(msg)
-                self.state = BTNodeState.BROKEN
-                return Err(BehaviorTreeException(msg))
-            self.options.handle_subscriptions()
 
             # Outputs are updated in the tick. To catch that, we need to reset here.
             self.outputs.reset_updated()
@@ -984,13 +976,14 @@ class Node(object, metaclass=NodeMeta):
         target_map: NodeDataMap,
         values: Optional[Dict[str, Any]] = None,
         permissive: bool = False,
+        static: bool = False,
     ) -> Result[None, NodeConfigError]:
         for key, data_type in {
             k: v for (k, v) in source_map.items() if not isinstance(v, OptionRef)
         }.items():
             if key in target_map:
                 return Err(NodeConfigError(f"Duplicate data name: {key}"))
-            add_result = target_map.add(key, NodeData(data_type=data_type))
+            add_result = target_map.add(key, NodeData(data_type=data_type, static=static))
             if add_result.is_err():
                 return Err(NodeConfigError(add_result.unwrap_err()))
             if values is not None and key in values:
@@ -1031,6 +1024,7 @@ class Node(object, metaclass=NodeMeta):
         target_map: NodeDataMap,
         values: Optional[Dict[str, Any]] = None,
         permissive: bool = False,
+        static: bool = False,
     ) -> Result[None, NodeConfigError]:
         """
         Register a number of typed :class:`NodeData` in the given map.
@@ -1060,8 +1054,9 @@ class Node(object, metaclass=NodeMeta):
         find_option_refs_result = self._find_option_refs(
             source_map=source_map,
             target_map=target_map,
-            permissive=permissive,
             values=values,
+            permissive=permissive,
+            static=static,
         )
         if find_option_refs_result.is_err():
             return find_option_refs_result
@@ -1097,7 +1092,7 @@ class Node(object, metaclass=NodeMeta):
                     )
                 )
             add_result = target_map.add(
-                key, NodeData(data_type=self.options[data_type.option_key])
+                key, NodeData(data_type=self.options[data_type.option_key], static=static)
             )
             if add_result.is_err():
                 return Err(NodeConfigError(add_result.unwrap_err()))

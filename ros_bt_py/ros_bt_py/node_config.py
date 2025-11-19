@@ -25,7 +25,7 @@
 # CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
-from typing import Any, Dict, Optional, List
+from typing import Any, Callable, Optional
 from result import Result, Err, Ok
 
 from ros_bt_py.exceptions import NodeConfigError
@@ -60,14 +60,15 @@ class OptionRef(object):
 class NodeConfig(object):
     def __init__(
         self,
-        options: Dict[str, Any],
-        inputs: Dict[str, Any],
-        outputs: Dict[str, Any],
+        options: dict[str, Any],
+        inputs: dict[str, Any],
+        outputs: dict[str, Any],
         max_children: Optional[int],
         default_values: Optional[dict[str, Any]] = None,
-        optional_options: Optional[List[str]] = None,
+        input_options: Optional[dict[str, Callable[[Any], Any]]] = None,
+        optional_options: Optional[list[str]] = None,
         version: str = "",
-        tags: Optional[List[str]] = None,
+        tags: Optional[list[str]] = None,
     ):
         """
         Describe the interface of a :class:ros_bt_py.node.Node .
@@ -101,20 +102,33 @@ class NodeConfig(object):
         :param default_values:
 
         Map for supplying custom default values for node options
+
+        :type input_options: dict[str, Callable[[Any], Any]]
+        :param input_options:
+
+        If a value can be supplied both as an input or an option,
+        both the option type and the input type have to be registered separately,
+        and the mapping from the option type to the input type should be registered here.
+        The value can then always be pulled from the node inputs,
+        the option value will be forwarded.
         """
         self.inputs = inputs
         self.outputs = outputs
         self.options = options
         self.max_children = max_children
 
+        if default_values is None:
+            default_values = {}
+        self.default_values = default_values
+
+        if input_options is None:
+            input_options = {}
+        self.input_options = input_options
+
         if optional_options is None:
             optional_options = []
         self.optional_options = optional_options
         self.version = version
-
-        if default_values is None:
-            default_values = {}
-        self.default_values = default_values
 
         if tags is None:
             tags = []
@@ -127,18 +141,22 @@ class NodeConfig(object):
             f"outputs={self.outputs}, "
             f"options={self.options}, "
             f"max_children={self.max_children}, "
+            f"input_options={self.input_options}, "
             f"optional_options={self.optional_options}, "
             f"version={self.version})"
         )
 
     def __eq__(self, other) -> bool:
+        if not isinstance(other, NodeConfig):
+            return False
         return (
             self.inputs == other.inputs
             and self.outputs == other.outputs
             and self.options == other.options
             and self.max_children == other.max_children
-            and self.optional_options == other.optional_options
+            and self.input_options == other.input_options
             and self.default_values == other.default_values
+            and self.optional_options == other.optional_options
             and self.version == other.version
         )
 
@@ -179,14 +197,17 @@ class NodeConfig(object):
                 continue
             self.options[key] = other.options[key]
 
+        for option, mapping in other.default_values.items():
+            self.input_options[option] = mapping
+
+        for option, default_value in other.default_values.items():
+            self.default_values[option] = default_value
+
         for optional_option in other.optional_options:
             if optional_option in self.optional_options:
                 continue
             else:
                 self.optional_options.append(optional_option)
-
-        for option, default_value in other.default_values.items():
-            self.default_values[option] = default_value
 
         if duplicate_inputs or duplicate_outputs or duplicate_options:
             msg = "Duplicate keys: "
