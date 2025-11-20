@@ -42,6 +42,8 @@ NodeIO[] inputs
 NodeIO[] outputs
 
 # Documentation
+string[] optional_options
+string[] input_options
 string doc
 
 # Tags

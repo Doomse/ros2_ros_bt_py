@@ -313,6 +313,8 @@ def get_available_nodes(
                         ),
                         inputs=to_node_io(node_class._node_config.inputs),
                         outputs=to_node_io(node_class._node_config.outputs),
+                        optional_options=node_class._node_config.optional_options,
+                        input_options=node_class._node_config.input_options.keys(),
                         doc=str(doc),
                         tags=node_class._node_config.tags,
                     )
