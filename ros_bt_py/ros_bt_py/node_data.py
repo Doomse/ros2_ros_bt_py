@@ -173,10 +173,12 @@ class NodeData(object):
         return self._serialized_type
 
     def set_updated(self):
-        self.updated = True
+        if not self._static:
+            self.updated = True
 
     def reset_updated(self):
-        self.updated = False
+        if not self._static:
+            self.updated = False
 
 
 class NodeDataMap(object):
