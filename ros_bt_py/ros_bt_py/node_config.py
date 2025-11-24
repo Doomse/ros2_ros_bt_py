@@ -65,7 +65,7 @@ class NodeConfig(object):
         outputs: dict[str, Any],
         max_children: Optional[int],
         default_values: Optional[dict[str, Any]] = None,
-        input_options: Optional[dict[str, Callable[[Any], Any]]] = None,
+        input_options: Optional[dict[str, Optional[Callable[[Any], Any]]]] = None,
         optional_options: Optional[list[str]] = None,
         version: str = "",
         tags: Optional[list[str]] = None,

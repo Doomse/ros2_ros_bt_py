@@ -122,6 +122,19 @@ def _connect_wirings(
     return connected_wirings
 
 
+@typechecked
+def _fixate_input_option_callback(
+  setter: Callable[[Any], None],
+  mapping: Optional[Callable[[Any], Any]]
+) -> Callable[[Any], None]:
+    def callback(val: Any):
+        if mapping is None:
+            setter(val)
+        else:
+            setter(mapping(val))
+    return callback
+
+
 N = TypeVar("N", bound="Node")
 
 
@@ -440,7 +453,9 @@ class Node(object, metaclass=NodeMeta):
         # using the transformation supplied in the node config
         for key, mapping in self.node_config.input_options.items():
             setter = self.inputs.get_callback(key)
-            self.options.subscribe(key, lambda x: setter(mapping(x)))
+            self.options.subscribe(key,
+                _fixate_input_option_callback(setter, mapping)
+            )
 
         self.outputs = NodeDataMap(name="outputs")
         register_result = self._register_node_data(
@@ -516,7 +531,7 @@ class Node(object, metaclass=NodeMeta):
                         f"but node {self.name} is in state {self.state}"
                     )
                 )
-            # Since options are static, calling their callbacks once in setup seems sufficient
+            # Apply input_option values (also sets their 'updated' flag)
             self.options.handle_subscriptions()
 
             setup_result = self._do_setup()
@@ -739,6 +754,9 @@ class Node(object, metaclass=NodeMeta):
             # before calling _do_reset() - the node can overwrite the None
             # with more appropriate values if need be.
             self.inputs.reset_updated()
+
+            # Reapply input_option values (also sets their 'updated' flag)
+            self.options.handle_subscriptions()
 
             for output_key in self.outputs:
                 self.outputs[output_key] = None
