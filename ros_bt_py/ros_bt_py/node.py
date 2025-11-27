@@ -39,6 +39,7 @@ import inspect
 import re
 import uuid
 from typing import (
+    TypeVar,
     Any,
     Callable,
     Generator,
@@ -121,8 +122,9 @@ def _connect_wirings(
     return connected_wirings
 
 
+N = TypeVar('N', bound="Node")
 @typechecked
-def define_bt_node(node_config: NodeConfig) -> Callable[[Type["Node"]], Type["Node"]]:
+def define_bt_node(node_config: NodeConfig) -> Callable[[type[N]], type[N]]:
     """
     Provide information about this Node's interface.
 
@@ -136,7 +138,7 @@ def define_bt_node(node_config: NodeConfig) -> Callable[[Type["Node"]], Type["No
     class. You should not need to register anything manually!
     """
 
-    def inner_dec(node_class: Type[Node]) -> Type[Node]:
+    def inner_dec(node_class: type[N]) -> type[N]:
         # Merge supplied node config with those of base classes
         for base in node_class.__bases__:
             if hasattr(base, "_node_config") and base._node_config:
