@@ -30,17 +30,7 @@ import rclpy
 import rclpy.logging
 from result import Err, Ok, Result
 
-from ros_bt_py.custom_types import (
-    FilePath,
-    RosActionName,
-    RosActionType,
-    RosServiceName,
-    RosServiceType,
-    RosTopicName,
-    RosTopicType,
-)
 from ros_bt_py.helpers import json_encode
-from ros_bt_py.ros_helpers import get_interface_name
 from ros_bt_py.custom_types import TypeWrapper
 
 import array

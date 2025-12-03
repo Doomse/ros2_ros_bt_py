@@ -107,6 +107,7 @@ from ros_bt_py.helpers import (
 from ros_bt_py.ros_helpers import ros_to_uuid, uuid_to_ros
 from ros_bt_py.node import Node, load_node_module, increment_name
 from ros_bt_py.node_config import OptionRef
+from ros_bt_py.node_data_wiring import NodeDataWiring
 
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus
 from std_msgs.msg import Float64
@@ -2469,21 +2470,17 @@ class TreeManager:
         :returns: :class:`ros_bt_py_msgs.src.WireNodeDataResponse` or `None`
         """
         response.success = True
-        find_root_result = self.find_root()
-        if find_root_result.is_err():
-            response.success = False
-            response.error_message = (
-                "Unable to find root node: " f"{str(find_root_result.unwrap_err())}"
-            )
-            return response
-        root = find_root_result.unwrap()
-        if not root:
-            response.success = False
-            response.error_message = "Tree is empty cannot wire!"
-            return response
+        response.error_message = ""
 
         successful_wirings = []
         for wiring in request.wirings:
+            match ros_to_uuid(wiring.source.node_id):
+                case Err(e):
+                    response.success = False
+                    response.error_message = e
+                    break
+                case Ok(n_id):
+                    source_node_id = n_id
             match ros_to_uuid(wiring.target.node_id):
                 case Err(e):
                     response.success = False
@@ -2492,53 +2489,55 @@ class TreeManager:
                 case Ok(n_id):
                     target_node_id = n_id
 
-            target_node = root.find_node(target_node_id)
-            if not target_node:
+            source_node = self.nodes.get(source_node_id)
+            if source_node is None:
+                response.success = False
+                response.error_message = f"Source node {source_node_id} does not exist"
+                break
+            target_node = self.nodes.get(target_node_id)
+            if target_node is None:
                 response.success = False
                 response.error_message = f"Target node {target_node_id} does not exist"
                 break
-            wire_data_result = target_node.wire_data(wiring)
-            if wire_data_result.is_err():
-                if not request.ignore_failure:
-                    response.success = False
-                    response.error_message = (
-                        f'Failed to execute wiring "{wiring}": '
-                        f"{str(wire_data_result.unwrap_err())}"
-                    )
-                    break
-            else:
-                successful_wirings.append(wiring)
 
-        if not response.success:
-            # Undo the successful wirings
-            for wiring in successful_wirings:
-                match ros_to_uuid(wiring.target.node_id):
-                    case Err(e):
+            node_data_wiring = NodeDataWiring(
+                source_id=source_node_id,
+                source_kind=wiring.source.data_kind,
+                source_key=wiring.source.data_key,
+                target_id=target_node_id,
+                target_kind=wiring.target.data_kind,
+                target_key=wiring.target.data_key,
+            )
+            match target_node.wire_data(node_data_wiring, source_node):
+                case Err(e):
+                    if not request.ignore_failure:
                         response.success = False
-                        response.error_message = e
-                        return response
-                    case Ok(n_id):
-                        target_node_id = n_id
+                        response.error_message += (
+                            f'Failed to execute wiring "{wiring}": {e}\n'
+                        )
+                        if not request.keep_partial:
+                            break
+                case Ok(_):
+                    successful_wirings.append(wiring)
 
-                target_node = root.find_node(target_node_id)
-                if not target_node:
-                    response.success = False
-                    response.error_message = (
-                        "Failed to find node target: " f"{target_node_id}"
-                    )
-                    return response
-                unwire_result = target_node.unwire_data(wiring)
-                if unwire_result.is_err():
-                    response.success = False
-                    response.error_message = (
-                        f'Failed to undo wiring "{wiring}": {str(unwire_result.unwrap_err())}\n'
-                        f"Previous error: {response.error_message}"
-                    )
-                    get_logger("tree_manager").get_child(self.name).error(
-                        "Failed to undo successful wiring after error. "
-                        "Tree is in undefined state!"
-                    )
-                    return response
+        if not response.success and not request.keep_partial:
+            # Undo the successful wirings
+            unwire_req = WireNodeData.Request()
+            unwire_req.wirings = successful_wirings
+            unwire_req.ignore_failure = False
+            unwire_req.keep_partial = True
+            unwire_res = self.unwire_data(unwire_req, WireNodeData.Response())
+            if not unwire_res.success:
+                response.success = False
+                response.error_message = (
+                    f"Failed to undo wirings: {str(unwire_res.error_message)}\n"
+                    f"Previous error: {response.error_message}"
+                )
+                get_logger("tree_manager").get_child(self.name).error(
+                    "Failed to undo successful wiring after error. "
+                    "Tree is in undefined state!"
+                )
+                return response
             return response
         else:
             # only actually wire any data if there were no errors
@@ -2563,23 +2562,18 @@ class TreeManager:
 
         :returns: :class:`ros_bt_py_msgs.src.WireNodeDataResponse` or `None`
         """
-        root_result = self.find_root()
-        if root_result.is_err():
-            response.success = False
-            response.error_message = (
-                "Unable to find root node: " f"{str(root_result.unwrap_err())}"
-            )
-            return response
-
-        root = root_result.unwrap()
-        if not root:
-            response.success = False
-            response.error_message = "Tree is empty cannot unwire data!"
-            return response
-
         response.success = True
+        response.error_message = ""
+
         successful_unwirings = []
         for wiring in request.wirings:
+            match ros_to_uuid(wiring.source.node_id):
+                case Err(e):
+                    response.success = False
+                    response.error_message = e
+                    break
+                case Ok(n_id):
+                    source_node_id = n_id
             match ros_to_uuid(wiring.target.node_id):
                 case Err(e):
                     response.success = False
@@ -2588,52 +2582,54 @@ class TreeManager:
                 case Ok(n_id):
                     target_node_id = n_id
 
-            target_node = root.find_node(target_node_id)
-            if not target_node:
+            source_node = self.nodes.get(source_node_id)
+            if source_node is None:
+                response.success = False
+                response.error_message = f"Source node {source_node_id} does not exist"
+                break
+            target_node = self.nodes.get(target_node_id)
+            if target_node is None:
                 response.success = False
                 response.error_message = f"Target node {target_node_id} does not exist"
                 break
-            unwire_result = target_node.unwire_data(wiring)
-            if unwire_result.is_err():
+
+            node_data_wiring = NodeDataWiring(
+                source_id=source_node_id,
+                source_kind=wiring.source.data_kind,
+                source_key=wiring.source.data_key,
+                target_id=target_node_id,
+                target_kind=wiring.target.data_kind,
+                target_key=wiring.target.data_key,
+            )
+            match target_node.unwire_data(node_data_wiring, source_node):
+                case Err(e):
+                    if not request.ignore_failure:
+                        response.success = False
+                        response.error_message += (
+                            f'Failed to remove wiring "{wiring}": {e}\n'
+                        )
+                        if not request.keep_partial:
+                            break
+                case Ok(_):
+                    successful_unwirings.append(wiring)
+
+        if not response.success and not request.keep_partial:
+            wire_req = WireNodeData.Request()
+            wire_req.wirings = successful_unwirings
+            wire_req.ignore_failure = False
+            wire_req.keep_partial = True
+            wire_res = self.wire_data(wire_req, WireNodeData.Response())
+            if not wire_res.success:
                 response.success = False
                 response.error_message = (
-                    f'Failed to remove wiring "{wiring}": '
-                    f"{str(unwire_result.unwrap_err())}"
+                    f"Failed to redo wirings: {str(wire_res.error_message)}\n"
+                    f"Previous error: {response.error_message}"
                 )
-                break
-            successful_unwirings.append(wiring)
-
-        if not response.success:
-            # Re-Wire the successful unwirings
-            for wiring in successful_unwirings:
-                match ros_to_uuid(wiring.target.node_id):
-                    case Err(e):
-                        response.success = False
-                        response.error_message = e
-                        return response
-                    case Ok(n_id):
-                        target_node_id = n_id
-
-                target_node = root.find_node(target_node_id)
-                if not target_node:
-                    response.success = False
-                    response.error_message = (
-                        f"Failed to find node: {wiring.target.node_id}"
-                    )
-                    return response
-
-                wire_data_result = target_node.wire_data(wiring)
-                if wire_data_result.is_err():
-                    response.success = False
-                    response.error_message = (
-                        f'Failed to redo wiring "{wiring}": {str(wire_data_result.unwrap_err())}\n'
-                        f"Previous error: {response.error_message}"
-                    )
-                    get_logger("tree_manager").get_child(self.name).error(
-                        "Failed to rewire successful unwiring after error. "
-                        "Tree is in undefined state!"
-                    )
-                    return response
+                get_logger("tree_manager").get_child(self.name).error(
+                    "Failed to rewire successful unwiring after error. "
+                    "Tree is in undefined state!"
+                )
+                return response
             return response
         else:
             # We've removed these NodeDataWirings, so remove them from tree_msg as

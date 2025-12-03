@@ -80,6 +80,7 @@ from ros_bt_py.exceptions import (
     TreeTopologyError,
 )
 from ros_bt_py.node_data import NodeData, NodeDataMap
+from ros_bt_py.node_data_wiring import NodeDataWiring
 from ros_bt_py.node_config import NodeConfig, OptionRef
 from ros_bt_py.custom_types import TypeWrapper
 from ros_bt_py.helpers import BTNodeState, get_default_value, json_decode, json_encode
@@ -386,8 +387,8 @@ class Node(object, metaclass=NodeMeta):
         self._state: BTNodeState = BTNodeState.UNINITIALIZED
         self.children: List[Node] = []
 
-        self.subscriptions: list[Wiring] = []
-        self.subscribers: list[tuple[Wiring, Callable[[type], None], type]] = []
+        self.subscriptions: list[NodeDataWiring] = []
+        self.subscribers: list[tuple[NodeDataWiring, Callable[[Any], None], type]] = []
 
         self._ros_node: Optional[ROSNode] = ros_node
         self.debug_manager: Optional[DebugManager] = debug_manager
@@ -1448,27 +1449,25 @@ class Node(object, metaclass=NodeMeta):
             ros_to_uuid(node.node_id).unwrap(): node
             for node in subtree.nodes
         }
-        incoming_connections: List[Wiring] = []
-        outgoing_connections: List[Wiring] = []
+        incoming_connections: list[Wiring] = []
+        outgoing_connections: list[Wiring] = []
         for node in self.get_children_recursive():
             for sub in node.subscriptions:
-                # Since this is internal data, we assume ids to be safe
-                source_node = node_map.get(ros_to_uuid(sub.source.node_id).unwrap())
-                target_node = node_map.get(ros_to_uuid(sub.target.node_id).unwrap())
+                wiring_msg = sub.to_wiring_msg()
+                source_node = node_map.get(sub.source_id)
+                target_node = node_map.get(sub.target_id)
 
                 # For subscriptions where source and target are in the subtree,
                 # add a wiring.
                 if source_node and target_node:
-                    subtree.data_wirings.append(
-                        Wiring(source=sub.source, target=sub.target)
-                    )
+                    subtree.data_wirings.append(wiring_msg)
                 # In the other cases, add that datum to public_node_data
                 elif source_node:
-                    subtree.public_node_data.append(sub.source)
-                    outgoing_connections.append(sub)
+                    subtree.public_node_data.append(wiring_msg.source)
+                    outgoing_connections.append(wiring_msg)
                 elif target_node:
-                    subtree.public_node_data.append(sub.target)
-                    incoming_connections.append(sub)
+                    subtree.public_node_data.append(wiring_msg.target)
+                    incoming_connections.append(wiring_msg)
                 else:
                     return Err(
                         BehaviorTreeException(
@@ -1479,9 +1478,10 @@ class Node(object, metaclass=NodeMeta):
 
             for wiring, _, _ in node.subscribers:
                 # Since this is internal data, we assume ids to be safe
-                if ros_to_uuid(wiring.target.node_id).unwrap() not in node_map:
-                    subtree.public_node_data.append(wiring.source)
-                    outgoing_connections.append(wiring)
+                if wiring.target_id not in node_map:
+                    wiring_msg = sub.to_wiring_msg()
+                    subtree.public_node_data.append(wiring_msg.source)
+                    outgoing_connections.append(wiring_msg)
 
         connected_inputs = _connect_wirings(
             subtree.data_wirings, NodeDataLocation.INPUT_DATA
@@ -1546,9 +1546,9 @@ class Node(object, metaclass=NodeMeta):
     @typechecked
     def _subscribe(
         self,
-        wiring: Wiring,
-        new_cb: Callable[[Type], None],
-        expected_type: Type,
+        wiring: NodeDataWiring,
+        new_cb: Callable[[Any], None],
+        expected_type: type,
     ) -> Result[None, BehaviorTreeException]:
         """
         Subscribe to a piece of Nodedata this node has.
@@ -1580,63 +1580,64 @@ class Node(object, metaclass=NodeMeta):
         BehaviorTreeException if `expected_type` and the actual type of
         the data are incompatible.
         """
-        # Since this function works on internal data, we assume ids to be safe
-        wiring_source_id = ros_to_uuid(wiring.source.node_id).unwrap()
-        wiring_target_id = ros_to_uuid(wiring.target.node_id).unwrap()
-        if wiring_source_id != self.node_id:
+        if wiring.source_id != self.node_id:
             return Err(
                 BehaviorTreeException(
                     f"{self.name} ({self.node_id}): "
-                    f"Trying to subscribe on behalf of another node ({wiring_source_id})"
+                    f"Trying to subscribe on behalf of another node ({wiring.source_id})"
                 )
             )
 
         for sub, _, _ in self.subscribers:
-            if sub.target == wiring.target:
-                if sub.source == wiring.source:
-                    return Err(BehaviorTreeException("Duplicate subscription!"))
+            if wiring == sub:
+                return Err(BehaviorTreeException("Duplicate subscription!"))
+            if wiring.has_same_target(sub):
                 self.logwarn(
-                    f"Subscriber {wiring_target_id} is subscribing to multiple sources "
-                    f"with the same target {wiring.target.data_kind}[{wiring.target.data_key}]"
+                    f"Subscriber {wiring.target_id} is subscribing to multiple sources "
+                    f"with the same target {wiring.target_kind}[{wiring.target_key}]"
                 )
 
-        source_map_result = self.get_data_map(wiring.source.data_kind)
-        if source_map_result.is_err():
-            return Err(BehaviorTreeException(str(source_map_result.unwrap_err())))
+        match self.get_data_map(wiring.source_kind):
+            case Err(e):
+                return Err(BehaviorTreeException(str(e)))
+            case Ok(m):
+                source_map = m
 
-        source_map = source_map_result.unwrap()
-
-        if wiring.source.data_key not in source_map:
+        if wiring.source_key not in source_map:
             return Err(
                 BehaviorTreeException(
-                    f"Source key {self.name}.{wiring.source.data_kind}[{wiring.source.data_key}] "
+                    f"Source key {self.name}.{wiring.source_kind}[{wiring.source_key}] "
                     "does not exist!"
                 )
             )
 
-        if not issubclass(source_map.get_type(wiring.source.data_key), expected_type):
+        if not issubclass(source_map.get_type(wiring.source_key), expected_type):
             return Err(
                 BehaviorTreeException(
-                    f"Type of {self.name}.{wiring.source.data_kind}[{wiring.source.data_key}] "
-                    f"({source_map.get_type(wiring.source.data_key).__name__}) "
+                    f"Type of {self.name}.{wiring.source_kind}[{wiring.source_key}] "
+                    f"({source_map.get_type(wiring.source_key).__name__}) "
                     "is not compatible with Type of "
-                    f"{wiring_target_id}."
-                    f"{wiring.target.data_kind}"
-                    f"[{wiring.target.data_key}] "
+                    f"{wiring.target_id}."
+                    f"{wiring.target_kind}"
+                    f"[{wiring.target_key}] "
                     f"({expected_type})!"
                 )
             )
 
         source_map.subscribe(
-            wiring.source.data_key,
+            wiring.source_key,
             new_cb,
-            f"{wiring_target_id}.{wiring.target.data_kind}[{wiring.target.data_key}]",
+            f"{wiring.target_id}.{wiring.target_kind}[{wiring.target_key}]",
         )
         self.subscribers.append((deepcopy(wiring), new_cb, expected_type))
         return Ok(None)
 
     @typechecked
-    def wire_data(self, wiring: Wiring) -> Result[None, BehaviorTreeException]:
+    def wire_data(
+        self,
+        wiring: NodeDataWiring,
+        source_node: "Node",
+    ) -> Result[None, BehaviorTreeException]:
         """
         Wire a piece of Nodedata from another node to this node.
 
@@ -1659,76 +1660,49 @@ class Node(object, metaclass=NodeMeta):
         target exists already, or if the types of source and target data
         are incompatible.
         """
-        match ros_to_uuid(wiring.source.node_id):
-            case Err(e):
-                return Err(BehaviorTreeException(e))
-            case Ok(n_id):
-                wiring_source_id = n_id
-        match ros_to_uuid(wiring.target.node_id):
-            case Err(e):
-                return Err(BehaviorTreeException(e))
-            case Ok(n_id):
-                wiring_target_id = n_id
-        if wiring_target_id != self.node_id:
+        if wiring.target_id != self.node_id:
             return Err(
                 BehaviorTreeException(
-                    f"Target of wiring ({wiring_target_id}) is not this node ({self.name})"
+                    f"Target of wiring ({wiring.target_id}) is not this node ({self.name})"
                 )
             )
 
         for sub in self.subscriptions:
-            if sub.target == wiring.target:
-                if sub.source == wiring.source:
-                    return Err(BehaviorTreeException("Duplicate subscription!"))
+            if sub == wiring:
+                return Err(BehaviorTreeException("Duplicate subscription!"))
 
-        source_node = self.find_node(wiring_source_id)
-        if not source_node:
-            return Err(
-                BehaviorTreeException(
-                    f"Source node {wiring_source_id} does not exist or is not connected "
-                    f"to target node {self.name}"
-                )
-            )
+        match self.get_data_map(wiring.target_kind):
+            case Err(e):
+                return Err(BehaviorTreeException(str(e)))
+            case Ok(m):
+                target_map = m
 
-        source_map_result = source_node.get_data_map(wiring.source.data_kind)
-        if source_map_result.is_err():
-            return Err(BehaviorTreeException(str(source_map_result.unwrap_err())))
-
-        source_map = source_map_result.unwrap()
-        if wiring.source.data_key not in source_map:
-            return Err(
-                BehaviorTreeException(
-                    f"Source key {source_node.name}."
-                    f"{wiring.source.data_kind}[{wiring.source.data_key}] does not exist!"
-                )
-            )
-
-        target_map_result = self.get_data_map(wiring.target.data_kind)
-        if target_map_result.is_err():
-            return Err(BehaviorTreeException(str(target_map_result.unwrap_err())))
-        target_map = target_map_result.unwrap()
-
-        if wiring.target.data_key not in target_map:
+        if wiring.target_key not in target_map:
             return Err(
                 BehaviorTreeException(
                     f"Target key {self.name}."
-                    f"{wiring.target.data_kind}[{wiring.target.data_key}] does not exist!"
+                    f"{wiring.target_kind}[{wiring.target_key}] does not exist!"
                 )
             )
 
-        subscribe_result = source_node._subscribe(
+        match source_node._subscribe(
             wiring,
-            target_map.get_callback(wiring.target.data_key),
-            target_map.get_type(wiring.target.data_key),
-        )
-        if subscribe_result.is_err():
-            return subscribe_result
+            target_map.get_callback(wiring.target_key),
+            target_map.get_type(wiring.target_key),
+        ):
+            case Err(e):
+                return Err(e)
+            case Ok(_):
+                pass
 
         self.subscriptions.append(deepcopy(wiring))
         return Ok(None)
 
     @typechecked
-    def _unsubscribe(self, wiring: Wiring) -> Result[None, BehaviorTreeException]:
+    def _unsubscribe(
+        self,
+        wiring: NodeDataWiring,
+    ) -> Result[None, BehaviorTreeException]:
         """
         Unsubscribe from a piece of NodeData this node has.
 
@@ -1740,39 +1714,41 @@ class Node(object, metaclass=NodeMeta):
         the requested key does not exist in this node.
 
         """
-        # Since this works on internal data, we assume ids to be safe
-        wiring_source_id = ros_to_uuid(wiring.source.node_id).unwrap()
-        if wiring_source_id != self.node_id:
+        if wiring.source_id != self.node_id:
             return Err(
                 BehaviorTreeException(
                     f"{self.name}: Trying to unsubscribe on behalf of another node "
-                    f"({wiring_source_id})"
+                    f"({wiring.source_id})"
                 )
             )
-        source_map_result = self.get_data_map(wiring.source.data_kind)
+        source_map_result = self.get_data_map(wiring.source_kind)
         if source_map_result.is_err():
             return Err(BehaviorTreeException(str(source_map_result.unwrap_err())))
         source_map = source_map_result.unwrap()
 
-        if wiring.source.data_key not in source_map:
+        if wiring.source_key not in source_map:
             return Err(
                 BehaviorTreeException(
                     f"Source key {self.name}."
-                    f"{wiring.source.data_kind}[{wiring.source.data_key}] does not exist!"
+                    f"{wiring.source_kind}[{wiring.source_key}] does not exist!"
                 )
             )
 
         for sub_wiring, callback, _ in self.subscribers:
-            if wiring.target == sub_wiring.target:
-                source_map.unsubscribe(wiring.source.data_key, callback)
+            if wiring.has_same_target(sub_wiring):
+                source_map.unsubscribe(wiring.source_key, callback)
         # remove subscriber data from list
         self.subscribers = [
-            sub for sub in self.subscribers if sub[0].target != wiring.target
+            sub for sub in self.subscribers if not wiring.has_same_target(sub[0])
         ]
         return Ok(None)
 
     @typechecked
-    def unwire_data(self, wiring: Wiring) -> Result[None, BehaviorTreeException]:
+    def unwire_data(
+        self,
+        wiring: NodeDataWiring,
+        source_node: "Node",
+    ) -> Result[None, BehaviorTreeException]:
         """
         Unwire the given wiring.
 
@@ -1785,32 +1761,22 @@ class Node(object, metaclass=NodeMeta):
         If the given wiring's source node cannot be found from this
         node.
         """
-        match ros_to_uuid(wiring.source.node_id):
-            case Err(e):
-                return Err(BehaviorTreeException(e))
-            case Ok(n_id):
-                wiring_source_id = n_id
-        match ros_to_uuid(wiring.target.node_id):
-            case Err(e):
-                return Err(BehaviorTreeException(e))
-            case Ok(n_id):
-                wiring_target_id = n_id
-        if wiring_target_id != self.node_id:
+        if wiring.target_id != self.node_id:
             return Err(
                 BehaviorTreeException(
-                    f"Target of wiring ({wiring_target_id}) is not this node ({self.name})"
+                    f"Target of wiring ({wiring.target_id}) is not this node ({self.name})"
                 )
             )
-        source_node = self.find_node(wiring_source_id)
 
         if wiring not in self.subscriptions:
             # Nothing to do
             return Ok(None)
 
-        if source_node:
-            unsubscribe_result = source_node._unsubscribe(wiring)
-            if unsubscribe_result.is_err():
-                return unsubscribe_result
+        match source_node._unsubscribe(wiring):
+            case Err(e):
+                return Err(e)
+            case Ok(_):
+                pass
 
         self.subscriptions.remove(wiring)
 
@@ -1820,16 +1786,16 @@ class Node(object, metaclass=NodeMeta):
             sub
             for sub in self.subscriptions
             if (
-                sub.target.data_kind == wiring.target.data_kind
-                and sub.target.data_key == wiring.target.data_key
+                sub.target_kind == wiring.target_kind
+                and sub.target_key == wiring.target_key
             )
         ]:
-            if wiring.target.data_kind == NodeDataLocation.INPUT_DATA:
-                self.inputs[wiring.target.data_key] = None
-            elif wiring.target.data_kind == NodeDataLocation.OUTPUT_DATA:
-                self.outputs[wiring.target.data_key] = None
-            elif wiring.target.data_kind == NodeDataLocation.OPTION_DATA:
-                self.options[wiring.target.data_key] = None
+            if wiring.target_kind == NodeDataLocation.INPUT_DATA:
+                self.inputs[wiring.target_key] = None
+            elif wiring.target_kind == NodeDataLocation.OUTPUT_DATA:
+                self.outputs[wiring.target_key] = None
+            elif wiring.target_kind == NodeDataLocation.OPTION_DATA:
+                self.options[wiring.target_key] = None
         return Ok(None)
 
     @typechecked
@@ -1891,15 +1857,15 @@ class Node(object, metaclass=NodeMeta):
         data_list: list[WiringData] = []
         for wiring, _, exp_type in self.subscribers:
             # Since we iterate subscribers, `wiring.source` should refer to self.
-            source_map_result = self.get_data_map(wiring.source.data_kind)
+            source_map_result = self.get_data_map(wiring.source_kind)
             if source_map_result.is_err():
                 continue
             source_map = source_map_result.unwrap()
-            key = wiring.source.data_key
+            key = wiring.source_key
             if not source_map.is_updated(key):
                 continue  # Don't publish stale data
             wiring_data = WiringData()
-            wiring_data.wiring = wiring
+            wiring_data.wiring = wiring.to_wiring_msg()
             wiring_data.serialized_data = source_map.get_serialized(key)
             wiring_data.serialized_type = source_map.get_serialized_type(key)
             wiring_data.serialized_expected_type = json_encode(exp_type)
