@@ -407,6 +407,7 @@ class TreeManager:
         self.tick_sliding_window = [tick_frequency_hz] * 10
 
         self.nodes: Dict[uuid.UUID, Node] = {}
+        self.wirings: list[NodeDataWiring] = []
 
         self._tree_lock = Lock()
         self._edit_lock = RLock()
@@ -780,6 +781,7 @@ class TreeManager:
             return response
 
         self.nodes = {}
+        self.wirings = []
         with self._tree_lock:
             self.tree_structure = TreeStructure(
                 tree_id=uuid_to_ros(self.tree_id),
@@ -1634,14 +1636,11 @@ class TreeManager:
         unwire_response = self.unwire_data(
             WireNodeData.Request(
                 wirings=[
-                    wiring
-                    for wiring in self.tree_structure.data_wirings
-                    # Wirings coming from the internal state will have valid node ids
+                    wiring.to_wiring_msg()
+                    for wiring in self.wirings
                     if (
-                        ros_to_uuid(wiring.source.node_id).unwrap()
-                        in node_ids_to_remove
-                        or ros_to_uuid(wiring.target.node_id).unwrap()
-                        in node_ids_to_remove
+                        wiring.source_id in node_ids_to_remove
+                        or wiring.target_id in node_ids_to_remove
                     )
                 ]
             ),
@@ -1700,18 +1699,6 @@ class TreeManager:
             for child in target_node.children:
                 child.parent = None
 
-        # Keep tree_structure up-to-date
-        # TODO The unwire_data call above should already update this
-        self.tree_structure.data_wirings = [
-            wiring
-            for wiring in self.tree_structure.data_wirings
-            # Wirings coming from the internal state will have valid node ids
-            if (
-                ros_to_uuid(wiring.source.node_id).unwrap() not in removed_node_ids
-                and ros_to_uuid(wiring.target.node_id).unwrap() not in removed_node_ids
-            )
-        ]
-
         self.tree_structure.public_node_data = [
             data
             for data in self.tree_structure.public_node_data
@@ -1761,13 +1748,9 @@ class TreeManager:
         # First unwire all data connection to the existing node
         wire_request = WireNodeData.Request(
             wirings=[
-                wiring
-                for wiring in self.tree_structure.data_wirings
-                if old_node.node_id
-                in [
-                    ros_to_uuid(wiring.source.node_id),
-                    ros_to_uuid(wiring.target.node_id),
-                ]
+                wiring.to_wiring_msg()
+                for wiring in self.wirings
+                if old_node.node_id in [wiring.source_id, wiring.target_id]
             ]
         )
 
@@ -2016,9 +1999,9 @@ class TreeManager:
         # new node (or the old one, if anything goes wrong).
         wire_request = WireNodeData.Request(
             wirings=[
-                wiring
-                for wiring in self.tree_structure.data_wirings
-                if node.node_id in [wiring.source.node_id, wiring.target.node_id]
+                wiring.to_wiring_msg()
+                for wiring in self.wirings
+                if node.node_id in [wiring.source_id, wiring.target_id]
             ]
         )
 
@@ -2097,12 +2080,6 @@ class TreeManager:
 
         # Re-wire all the data, just as it was before
         new_wire_request = deepcopy(wire_request)
-        if request.rename_node:
-            for wiring in new_wire_request.wirings:
-                if wiring.source.node_id == node.node_id:
-                    wiring.source.node_id = new_node.node_id
-                if wiring.target.node_id == node.node_id:
-                    wiring.target.node_id = new_node.node_id
 
         rewire_resp = WireNodeData.Response()
         rewire_resp = self.wire_data(request=new_wire_request, response=rewire_resp)
@@ -2472,7 +2449,7 @@ class TreeManager:
         response.success = True
         response.error_message = ""
 
-        successful_wirings = []
+        successful_wirings: list[NodeDataWiring] = []
         for wiring in request.wirings:
             match ros_to_uuid(wiring.source.node_id):
                 case Err(e):
@@ -2518,12 +2495,12 @@ class TreeManager:
                         if not request.keep_partial:
                             break
                 case Ok(_):
-                    successful_wirings.append(wiring)
+                    successful_wirings.append(node_data_wiring)
 
         if not response.success and not request.keep_partial:
             # Undo the successful wirings
             unwire_req = WireNodeData.Request()
-            unwire_req.wirings = successful_wirings
+            unwire_req.wirings = [w.to_wiring_msg() for w in successful_wirings]
             unwire_req.ignore_failure = False
             unwire_req.keep_partial = True
             unwire_res = self.unwire_data(unwire_req, WireNodeData.Response())
@@ -2543,7 +2520,7 @@ class TreeManager:
             # only actually wire any data if there were no errors
             # We made it here, so all the Wirings should be valid. Time to save
             # them.
-            cast(list, self.tree_structure.data_wirings).extend(successful_wirings)
+            self.wirings.extend(successful_wirings)
             self.publish_structure()
         return response
 
@@ -2611,11 +2588,11 @@ class TreeManager:
                         if not request.keep_partial:
                             break
                 case Ok(_):
-                    successful_unwirings.append(wiring)
+                    successful_unwirings.append(node_data_wiring)
 
         if not response.success and not request.keep_partial:
             wire_req = WireNodeData.Request()
-            wire_req.wirings = successful_unwirings
+            wire_req.wirings = [w.to_wiring_msg() for w in successful_unwirings]
             wire_req.ignore_failure = False
             wire_req.keep_partial = True
             wire_res = self.wire_data(wire_req, WireNodeData.Response())
@@ -2634,9 +2611,11 @@ class TreeManager:
         else:
             # We've removed these NodeDataWirings, so remove them from tree_msg as
             # well.
-            for wiring in request.wirings:
-                if wiring in self.tree_structure.data_wirings:
-                    cast(list, self.tree_structure.data_wirings).remove(wiring)
+            for wiring in successful_unwirings:
+                try:
+                    self.wirings.remove(wiring)
+                except ValueError:
+                    pass
             self.publish_structure()
         return response
 
@@ -2793,9 +2772,13 @@ class TreeManager:
                     self.tree_structure.nodes = [
                         node.to_structure_msg() for node in self.nodes.values()
                     ]
+                    self.tree_structure.data_wirings = [
+                        wiring.to_wiring_msg() for wiring in self.wirings
+                    ]
                 else:
                     subtree = get_subtree_msg_result.unwrap()[0]
                     self.tree_structure.nodes = subtree.nodes
+                    self.tree_structure.data_wirings = subtree.data_wirings
                     self.tree_structure.public_node_data = subtree.public_node_data
             else:
                 self.tree_structure.nodes = []
@@ -2807,6 +2790,9 @@ class TreeManager:
             # so the user can fix it in the editor
             self.tree_structure.nodes = [
                 node.to_structure_msg() for node in self.nodes.values()
+            ]
+            self.tree_structure.data_wirings = [
+                wiring.to_wiring_msg() for wiring in self.wirings
             ]
         return self.tree_structure
 

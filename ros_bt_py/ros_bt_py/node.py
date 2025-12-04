@@ -1474,7 +1474,7 @@ class Node(object, metaclass=NodeMeta):
 
             for wiring, _, _ in node.subscribers:
                 if wiring.target_id not in node_map:
-                    wiring_msg = sub.to_wiring_msg()
+                    wiring_msg = wiring.to_wiring_msg()
                     subtree.public_node_data.append(wiring_msg.source)
                     outgoing_connections.append(wiring_msg)
 
