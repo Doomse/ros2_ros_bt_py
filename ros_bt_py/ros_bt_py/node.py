@@ -103,23 +103,20 @@ def _check_node_data_match(
 
 @typechecked
 def _connect_wirings(
-    data_wirings: List[Wiring], type: str
+    data_wirings: List[NodeDataWiring], type: str
 ) -> Dict[uuid.UUID, List[str]]:
     connected_wirings: Dict[uuid.UUID, List[str]] = {}
     for wiring in data_wirings:
-        # Since this function is for internal use, we assume ids to be valid
-        source_id = ros_to_uuid(wiring.source.node_id).unwrap()
-        target_id = ros_to_uuid(wiring.target.node_id).unwrap()
-        if wiring.source.data_kind == type:
-            if source_id in connected_wirings:
-                connected_wirings[source_id].append(wiring.source.data_key)
+        if wiring.source_kind == type:
+            if wiring.source_id in connected_wirings:
+                connected_wirings[wiring.source_id].append(wiring.source_key)
             else:
-                connected_wirings[source_id] = [wiring.source.data_key]
-        elif wiring.target.data_kind == type:
-            if target_id in connected_wirings:
-                connected_wirings[target_id].append(wiring.target.data_key)
+                connected_wirings[wiring.source_id] = [wiring.source_key]
+        elif wiring.target_kind == type:
+            if wiring.target_id in connected_wirings:
+                connected_wirings[wiring.target_id].append(wiring.target_key)
             else:
-                connected_wirings[target_id] = [wiring.target.data_key]
+                connected_wirings[wiring.target_id] = [wiring.target_key]
     return connected_wirings
 
 
@@ -1444,11 +1441,10 @@ class Node(object, metaclass=NodeMeta):
         subtree.data_wirings = []
         subtree.public_node_data = []
 
-        node_map: Dict[uuid.UUID, NodeStructure] = {
-            # Since this is internal data, we assume ids to be safe
-            ros_to_uuid(node.node_id).unwrap(): node
-            for node in subtree.nodes
+        node_map: Dict[uuid.UUID, Node] = {
+            node.node_id: node for node in self.get_children_recursive()
         }
+        subtree_wirings: list[NodeDataWiring] = []
         incoming_connections: list[Wiring] = []
         outgoing_connections: list[Wiring] = []
         for node in self.get_children_recursive():
@@ -1460,7 +1456,7 @@ class Node(object, metaclass=NodeMeta):
                 # For subscriptions where source and target are in the subtree,
                 # add a wiring.
                 if source_node and target_node:
-                    subtree.data_wirings.append(wiring_msg)
+                    subtree_wirings.append(sub)
                 # In the other cases, add that datum to public_node_data
                 elif source_node:
                     subtree.public_node_data.append(wiring_msg.source)
@@ -1477,46 +1473,45 @@ class Node(object, metaclass=NodeMeta):
                     )
 
             for wiring, _, _ in node.subscribers:
-                # Since this is internal data, we assume ids to be safe
                 if wiring.target_id not in node_map:
                     wiring_msg = sub.to_wiring_msg()
                     subtree.public_node_data.append(wiring_msg.source)
                     outgoing_connections.append(wiring_msg)
 
+        subtree.data_wirings = [wiring.to_wiring_msg() for wiring in subtree_wirings]
+
         connected_inputs = _connect_wirings(
-            subtree.data_wirings, NodeDataLocation.INPUT_DATA
+            subtree_wirings, NodeDataLocation.INPUT_DATA
         )
         connected_outputs = _connect_wirings(
-            subtree.data_wirings, NodeDataLocation.OUTPUT_DATA
+            subtree_wirings, NodeDataLocation.OUTPUT_DATA
         )
 
-        for node in subtree.nodes:
-            # Since this is internal data, we assume ids to be safe
-            node_id = ros_to_uuid(node.node_id).unwrap()
+        for node in node_map.values():
             for node_input in node.inputs:
                 if (
-                    node_id not in connected_inputs
-                    or node_input.key not in connected_inputs[node_id]
+                    node.node_id not in connected_inputs
+                    or node_input not in connected_inputs[node.node_id]
                 ):
                     # Input is unconnected, list it as public
                     subtree.public_node_data.append(
                         NodeDataLocation(
-                            node_id=node.node_id,
+                            node_id=uuid_to_ros(node.node_id),
                             data_kind=NodeDataLocation.INPUT_DATA,
-                            data_key=node_input.key,
+                            data_key=node_input,
                         )
                     )
             for node_output in node.outputs:
                 if (
-                    node_id not in connected_outputs
-                    or node_output.key not in connected_outputs[node_id]
+                    node.node_id not in connected_outputs
+                    or node_output not in connected_outputs[node.node_id]
                 ):
                     # Input is unconnected, list it as public
                     subtree.public_node_data.append(
                         NodeDataLocation(
-                            node_id=node.node_id,
+                            node_id=uuid_to_ros(node.node_id),
                             data_kind=NodeDataLocation.OUTPUT_DATA,
-                            data_key=node_output.key,
+                            data_key=node_output,
                         )
                     )
         return Ok((subtree, incoming_connections, outgoing_connections))
