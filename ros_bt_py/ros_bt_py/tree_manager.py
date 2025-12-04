@@ -417,18 +417,9 @@ class TreeManager:
         # RUNNING for the first time
         self._stop_after_result: bool = False
 
-        self.tree_structure = TreeStructure(tree_id=uuid_to_ros(self.tree_id))
-        # These reassignments makes the typing happy,
-        #   because they ensure that `.append .extent .remove ...` exists
-        self.tree_structure.data_wirings = []
-        self.tree_structure.public_node_data = []
-        self.tree_structure.name = self.name
-        self.tree_structure.tick_frequency_hz = tick_frequency_hz
-        self.rate = self.ros_node.create_rate(self.tree_structure.tick_frequency_hz)
+        self.tick_frequency_hz = tick_frequency_hz
+        self.rate = self.ros_node.create_rate(self.tick_frequency_hz)
 
-        self.tree_state = TreeState(tree_id=uuid_to_ros(self.tree_id))
-
-        self.tree_data = TreeData(tree_id=uuid_to_ros(self.tree_id))
         self.enable_publish_data = False
 
         self.diagnostic_array = DiagnosticArray()
@@ -454,19 +445,6 @@ class TreeManager:
                 1.0 / diagnostics_frequency, self.diagnostic_callback
             )
 
-    @property
-    def state(self) -> str:
-        return self.tree_state.state
-
-    @state.setter
-    @typechecked
-    def state(self, new_state: str) -> None:
-        with self._tree_lock:
-            self.tree_state.state = new_state
-            self.ros_node.get_logger().debug(
-                f"Updating tree state to {self.tree_state.state}"
-            )
-
     def set_diagnostics_name(self) -> None:
         """
         Set the tree name for ROS diagnostics.
@@ -474,23 +452,28 @@ class TreeManager:
         If the BT has a name, this name will published in diagnostics.
         Otherwise, the root name of the tree is used.
         """
-        if self.tree_structure.name:
-            self.diagnostic_status.name = os.path.splitext(self.tree_structure.name)[0]
-        elif self.tree_structure.root_id:
-            self.diagnostic_status.name = self.nodes[
-                ros_to_uuid(self.tree_structure.root_id).unwrap()
-            ].name
-            get_logger("tree_manager").get_child(self.name).warn(
-                "No tree name was found. Diagnostics data from the behavior tree will be"
-                f"published under the name of the root_node: {self.diagnostic_status.name}"
-            )
+        if self.name:
+            self.diagnostic_status.name = os.path.splitext(self.name)[0]
         else:
-            self.diagnostic_status.name = ""
-            get_logger("tree_manager").get_child(self.name).warn(
-                "Neither a tree name nor the name from the root_node was found."
-                "Diagnostics data from the behavior tree will be "
-                "published without further name specifications"
-            )
+            root = None
+            match self.find_root():
+                case Err(_):
+                    pass
+                case Ok(r):
+                    root = r
+            if root is None:
+                self.diagnostic_status.name = ""
+                get_logger("tree_manager").get_child(self.name).warn(
+                    "Neither a tree name nor the name from the root_node was found."
+                    "Diagnostics data from the behavior tree will be "
+                    "published without further name specifications"
+                )
+            else:
+                self.diagnostic_status.name = root.name
+                get_logger("tree_manager").get_child(self.name).warn(
+                    "No tree name was found. Diagnostics data from the behavior tree will be"
+                    f"published under the name of the root_node: {self.diagnostic_status.name}"
+                )
 
     def clear_diagnostics_name(self) -> None:
         """Clear the name for ROS diagnostics."""
@@ -591,13 +574,13 @@ class TreeManager:
         if len(possible_roots) > 1:
             return Err(
                 TreeTopologyError(
-                    f'Tree "{self.tree_structure.name}" has multiple nodes without parents.'
+                    f'Tree "{self.name}" has multiple nodes without parents.'
                 )
             )
         if not possible_roots:
             return Err(
                 TreeTopologyError(
-                    f'All nodes in tree "{self.tree_structure.name} have parents. You have '
+                    f'All nodes in tree "{self.name} have parents. You have '
                     "made a cycle, which makes the tree impossible to run!"
                 )
             )
@@ -656,8 +639,6 @@ class TreeManager:
                 TreeTopologyError("No nodes in  the tree, tick will do nothing!")
             )
 
-        with self._tree_lock:
-            self.tree_structure.root_id = uuid_to_ros(root.node_id)
         if root.state in (BTNodeState.UNINITIALIZED, BTNodeState.SHUTDOWN):
             root.setup()
             if root.state is not BTNodeState.IDLE:
@@ -696,12 +677,12 @@ class TreeManager:
 
             duration: Duration = tick_end_timestamp - tick_start_timestamp  # type: ignore
             # We know that Time - Time = Duration
-            tick_rate = self.tree_structure.tick_frequency_hz
+            tick_rate = self.tick_frequency_hz
 
             if (1 / tick_rate) > (duration.nanoseconds * 1e9):
                 get_logger("tree_manager").get_child(self.name).warn(
                     "Tick took longer than set period, cannot tick at "
-                    f"{self.tree_structure.tick_frequency_hz:.2f} Hz"
+                    f"{self.tick_frequency_hz:.2f} Hz"
                 )
 
             self.tick_sliding_window.pop(0)
@@ -782,20 +763,6 @@ class TreeManager:
 
         self.nodes = {}
         self.wirings = []
-        with self._tree_lock:
-            self.tree_structure = TreeStructure(
-                tree_id=uuid_to_ros(self.tree_id),
-                name="",
-                tick_frequency_hz=self.tree_structure.tick_frequency_hz,
-            )
-            # These reassignments makes the typing happy,
-            #   because they ensure that `.append .extent .remove ...` exists
-            self.tree_structure.data_wirings = []
-            self.tree_structure.public_node_data = []
-            self.tree_state = TreeState(
-                tree_id=uuid_to_ros(self.tree_id), state=TreeState.EDITABLE
-            )
-            self.tree_data = TreeData(tree_id=uuid_to_ros(self.tree_id))
         self.publish_structure()
         self.subtree_manager.clear_subtrees()
         self.clear_diagnostics_name()
@@ -850,20 +817,29 @@ class TreeManager:
 
         tree = load_response.tree
 
-        tree.tree_id = uuid_to_ros(self.tree_id)
-
         for public_datum in tree.public_node_data:
             if public_datum.data_kind == NodeDataLocation.OPTION_DATA:
                 response.success = False
                 response.error_message = (
                     "public_node_data: option values cannot be public!"
                 )
-
                 return response
 
         try:
             # Clear existing tree, then replace it with the message's contents
             self.clear(None, ClearTree.Response())
+
+            self.name = tree.name
+            self.tick_frequency_hz = tree.tick_frequency_hz
+
+            if self.tick_frequency_hz == 0.0:
+                get_logger("tree_manager").get_child(self.name).warn(
+                    "Tick frequency of loaded tree is 0, defaulting to 10Hz"
+                )
+                self.tick_frequency_hz = 10.0
+
+            self.rate = self.ros_node.create_rate(frequency=self.tick_frequency_hz)
+
             # First just add all nodes to the tree, then restore tree structure
             for node in tree.nodes:
                 match self.instantiate_node_from_msg(
@@ -907,47 +883,6 @@ class TreeManager:
                 response.success = False
                 response.error_message = get_error_message(wire_response)
                 return response
-
-            updated_wirings = []
-            for wiring in tree.data_wirings:
-                if wiring in self.tree_structure.data_wirings:
-                    updated_wirings.append(wiring)
-
-            tree.data_wirings = updated_wirings
-
-            self.tree_structure = tree
-            # These reassignments makes the typing happy,
-            #   because they ensure that `.append .extent .remove ...` exists
-            self.tree_structure.data_wirings = list(tree.data_wirings)
-            self.tree_structure.public_node_data = list(tree.public_node_data)
-            if self.tree_structure.tick_frequency_hz == 0.0:
-                get_logger("tree_manager").get_child(self.name).warn(
-                    "Tick frequency of loaded tree is 0, defaulting to 10Hz"
-                )
-                self.tree_structure.tick_frequency_hz = 10.0
-
-            self.rate = self.ros_node.create_rate(
-                frequency=self.tree_structure.tick_frequency_hz
-            )
-
-            # Ensure Tree is editable after loading
-            self.tree_state = TreeState(tree_id=tree.tree_id)
-            self.state = TreeState.EDITABLE
-
-            self.tree_data = TreeData(tree_id=tree.tree_id)
-
-            # find and set root name
-            find_root_result = self.find_root()
-            if find_root_result.is_err():
-                response.success = False
-                response.error_message = (
-                    f"Could not find root of new tree: {find_root_result.unwrap_err()}"
-                )
-                return response
-            root = find_root_result.unwrap()
-            if root:
-                with self._tree_lock:
-                    self.tree_structure.root_id = uuid_to_ros(root.node_id)
 
             response.success = True
             get_logger("tree_manager").get_child(self.name).info(
@@ -1060,14 +995,12 @@ class TreeManager:
 
             self._tick_thread.start()
             # Give the tick thread some time to finish
-            self._tick_thread.join((1.0 / self.tree_structure.tick_frequency_hz) * 4.0)
+            self._tick_thread.join((1.0 / self.tick_frequency_hz) * 4.0)
             # If we're debugging or setting up (and ROS is not
             # shutting down), keep sleepin until the thread
             # finishes
             while self._tick_thread.is_alive() and ok():
-                self._tick_thread.join(
-                    (1.0 / self.tree_structure.tick_frequency_hz) * 4.0
-                )
+                self._tick_thread.join((1.0 / self.tick_frequency_hz) * 4.0)
             if self._tick_thread.is_alive():
                 response.success = False
                 response.error_message = (
@@ -1140,18 +1073,14 @@ class TreeManager:
                 self._stop_after_result = True
             # Use provided tick frequency, if any
             if request.tick_frequency_hz != 0:
-                self.tree_structure.tick_frequency_hz = request.tick_frequency_hz
-                self.rate = self.ros_node.create_rate(
-                    frequency=self.tree_structure.tick_frequency_hz
-                )
-            if self.tree_structure.tick_frequency_hz == 0:
+                self.tick_frequency_hz = request.tick_frequency_hz
+                self.rate = self.ros_node.create_rate(frequency=self.tick_frequency_hz)
+            if self.tick_frequency_hz == 0:
                 get_logger("tree_manager").get_child(self.name).warn(
                     "Loaded tree had frequency 0Hz. Defaulting to 10Hz"
                 )
-                self.tree_structure.tick_frequency_hz = 10.0
-                self.rate = self.ros_node.create_rate(
-                    frequency=self.tree_structure.tick_frequency_hz
-                )
+                self.tick_frequency_hz = 10.0
+                self.rate = self.ros_node.create_rate(frequency=self.tick_frequency_hz)
             self._tick_thread.start()
             response.success = True
             response.tree_state = TreeState.TICKING
@@ -1290,17 +1219,13 @@ class TreeManager:
                 # we're in deep trouble.
                 if self._tick_thread.is_alive():
                     # Give the tick thread some time to finish
-                    self._tick_thread.join(
-                        (1.0 / self.tree_structure.tick_frequency_hz) * 4.0
-                    )
+                    self._tick_thread.join((1.0 / self.tick_frequency_hz) * 4.0)
 
                     # If we're debugging or setting up (and ROS is not
                     # shutting down), keep sleeping until the thread
                     # finishes
                     while self._tick_thread.is_alive() and ok():
-                        self._tick_thread.join(
-                            (1.0 / self.tree_structure.tick_frequency_hz) * 4.0
-                        )
+                        self._tick_thread.join((1.0 / self.tick_frequency_hz) * 4.0)
                     if self._tick_thread.is_alive():
                         response.success = False
                         response.error_message = (
@@ -1523,7 +1448,7 @@ class TreeManager:
         if nodes_in_cycles:
             response.success = False
             response.error_message = (
-                f"Found cycles in tree {self.tree_structure.name} after inserting node "
+                f"Found cycles in tree {self.name} after inserting node "
                 f"{request.node.name}. Nodes in cycles: {str(nodes_in_cycles)}"
             )
             # First, remove all of the node's children to avoid infinite
@@ -1552,7 +1477,8 @@ class TreeManager:
         """Reload the currently loaded tree."""
         load_response = LoadTree.Response()
         load_response = self.load_tree(
-            request=LoadTree.Request(tree=self.tree_structure), response=load_response
+            request=LoadTree.Request(tree=self.structure_to_msg()),
+            response=load_response,
         )
 
         response.success = load_response.success
@@ -1566,7 +1492,7 @@ class TreeManager:
         self, request: ChangeTreeName.Request, response: ChangeTreeName.Response
     ) -> ChangeTreeName.Response:
         """Change the name of the currently loaded tree."""
-        self.tree_structure.name = request.name
+        self.name = request.name
         self.publish_structure()
 
         response.success = True
@@ -1596,8 +1522,7 @@ class TreeManager:
         if node_id not in self.nodes:
             response.success = False
             response.error_message = (
-                f"No node with id {request.node_id} in "
-                f"tree {self.tree_structure.name}"
+                f"No node with id {request.node_id} in " f"tree {self.name}"
             )
             return response
 
@@ -1622,7 +1547,7 @@ class TreeManager:
                     response.success = False
                     response.error_message = (
                         f"Error while removing children of node {target_node.name}: "
-                        f"No node with id {n_id} in tree {self.tree_structure.name}"
+                        f"No node with id {n_id} in tree {self.name}"
                     )
                     return response
                 node_ids_to_remove.extend(
@@ -1699,13 +1624,6 @@ class TreeManager:
             for child in target_node.children:
                 child.parent = None
 
-        self.tree_structure.public_node_data = [
-            data
-            for data in self.tree_structure.public_node_data
-            # Data coming from the internal state will have valid node ids
-            if ros_to_uuid(data.node_id).unwrap() not in removed_node_ids
-        ]
-
         for n_id in removed_node_ids:
             self.subtree_manager.remove_subtree(n_id)
 
@@ -1730,7 +1648,7 @@ class TreeManager:
         if node_id not in self.nodes:
             response.success = False
             response.error_message = (
-                f"No node with id {node_id} in" f" tree {self.tree_structure.name}"
+                f"No node with id {node_id} in" f" tree {self.name}"
             )
             return response
 
@@ -1874,7 +1792,7 @@ class TreeManager:
         if node_id not in self.nodes:
             response.success = False
             response.error_message = (
-                f"Unable to find node {node_id} in tree " f"{self.tree_structure.name}"
+                f"Unable to find node {node_id} in tree " f"{self.name}"
             )
             return response
 
@@ -2661,7 +2579,7 @@ class TreeManager:
         This also adds all relevant parents to the tree message, resulting in a tree that is
         executable and does not contain any orpahned nodes.
         """
-        whole_tree = deepcopy(self.tree_structure)
+        whole_tree = self.structure_to_msg()
 
         root_result = self.find_root()
         if root_result.is_err():
@@ -2720,8 +2638,6 @@ class TreeManager:
             root = root_result.unwrap()
             if not root:
                 get_logger("tree_manager").get_child(self.name).info("No nodes in tree")
-            else:
-                manager.tree_structure.root_id = uuid_to_ros(root.node_id)
             response.success = True
             response.tree = manager.structure_to_msg()
             return response
@@ -2763,51 +2679,61 @@ class TreeManager:
         return Ok(node_instance)
 
     def structure_to_msg(self) -> TreeStructure:
-        root_result = self.find_root()
-        if root_result.is_ok():
-            root = root_result.unwrap()
-            if root is not None:
-                get_subtree_msg_result = root.get_subtree_msg()
-                if get_subtree_msg_result.is_err():
-                    self.tree_structure.nodes = [
+        tree_structure = TreeStructure(
+            tree_id=uuid_to_ros(self.tree_id),
+            name=self.name,
+            tick_frequency_hz=self.tick_frequency_hz,
+        )
+        match self.find_root():
+            case Err(e):
+                get_logger("tree_manager").get_child(self.name).warn(
+                    f"Strange topology {str(e)}"
+                )
+                # build a tree_structure out of this strange topology,
+                # so the user can fix it in the editor
+                tree_structure.nodes = [
+                    node.to_structure_msg() for node in self.nodes.values()
+                ]
+                tree_structure.data_wirings = [
+                    wiring.to_wiring_msg() for wiring in self.wirings
+                ]
+                return tree_structure
+            case Ok(r):
+                root = r
+        if root is not None:
+            tree_structure.root_id = uuid_to_ros(root.node_id)
+            match root.get_subtree_msg():
+                case Err(_):
+                    tree_structure.nodes = [
                         node.to_structure_msg() for node in self.nodes.values()
                     ]
-                    self.tree_structure.data_wirings = [
+                    tree_structure.data_wirings = [
                         wiring.to_wiring_msg() for wiring in self.wirings
                     ]
-                else:
-                    subtree = get_subtree_msg_result.unwrap()[0]
-                    self.tree_structure.nodes = subtree.nodes
-                    self.tree_structure.data_wirings = subtree.data_wirings
-                    self.tree_structure.public_node_data = subtree.public_node_data
-            else:
-                self.tree_structure.nodes = []
+                case Ok((subtree, _, _)):
+                    tree_structure.nodes = subtree.nodes
+                    tree_structure.data_wirings = subtree.data_wirings
+                    tree_structure.public_node_data = subtree.public_node_data
         else:
-            get_logger("tree_manager").get_child(self.name).warn(
-                f"Strange topology {str(root_result.unwrap_err())}"
-            )
-            # build a tree_structure out of this strange topology,
-            # so the user can fix it in the editor
-            self.tree_structure.nodes = [
-                node.to_structure_msg() for node in self.nodes.values()
-            ]
-            self.tree_structure.data_wirings = [
-                wiring.to_wiring_msg() for wiring in self.wirings
-            ]
-        return self.tree_structure
+            tree_structure.nodes = []
+        return tree_structure
 
     def state_to_msg(self) -> TreeState:
-        self.tree_state.state = self.state
-        self.tree_state.node_states = [
-            node.to_state_msg() for node in self.nodes.values()
-        ]
-        return self.tree_state
+        tree_state = TreeState(
+            tree_id=uuid_to_ros(self.tree_id),
+            state=self.state,
+        )
+        tree_state.node_states = [node.to_state_msg() for node in self.nodes.values()]
+        return tree_state
 
     def data_to_msg(self) -> TreeData:
-        self.tree_data.wiring_data = []
+        tree_data = TreeData(
+            tree_id=uuid_to_ros(self.tree_id),
+        )
+        tree_data.wiring_data = []
         for node in self.nodes.values():
-            self.tree_data.wiring_data.extend(node.wire_data_msg_list())
-        return self.tree_data
+            tree_data.wiring_data.extend(node.wire_data_msg_list())
+        return tree_data
 
 
 @typechecked
