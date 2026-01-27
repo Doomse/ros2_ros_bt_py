@@ -27,12 +27,13 @@
 # POSSIBILITY OF SUCH DAMAGE.
 import json
 import os
-import yaml
+import inspect
 from importlib import metadata
 import ament_index_python
 from ament_index_python import PackageNotFoundError
 
 from typing import Any, Optional, List
+from typeguard import typechecked
 
 import rclpy
 import rclpy.publisher
@@ -41,7 +42,14 @@ import rclpy.logging
 import rosidl_runtime_py
 import rosidl_runtime_py.utilities
 
-from ros_bt_py_interfaces.msg import MessageTypes, Package, Packages
+from ros_bt_py_interfaces.msg import (
+    DocumentedNode,
+    NodeIO,
+    NodeOption,
+    MessageTypes,
+    Package,
+    Packages,
+)
 from ros_bt_py_interfaces.srv import (
     GetMessageFields,
     GetMessageConstantFields,
@@ -49,9 +57,11 @@ from ros_bt_py_interfaces.srv import (
     GetPackageStructure,
     GetFolderStructure,
     GetStorageFolders,
+    GetAvailableNodes,
 )
 
-from ros_bt_py.node import increment_name
+from ros_bt_py.node import Node, load_node_module, increment_name
+from ros_bt_py.node_config import OptionRef
 from ros_bt_py.helpers import json_encode, build_message_field_dicts
 from ros_bt_py.ros_helpers import get_message_constant_fields
 
@@ -372,4 +382,72 @@ class PackageManager(object):
         self, request: GetStorageFolders.Request, response: GetStorageFolders.Response
     ) -> GetStorageFolders.Response:
         response.storage_folders = self.tree_storage_directory_paths
+        return response
+
+    @typechecked
+    @staticmethod
+    def get_available_nodes(
+        request: GetAvailableNodes.Request, response: GetAvailableNodes.Response
+    ) -> GetAvailableNodes.Response:
+        """
+        List the types of nodes that are currently known.
+
+        This includes all nodes from modules that were passed to our
+        constructor in `module_list`, ones from modules that nodes have
+        been successfully loaded from since launch, and ones from
+        modules explicitly asked for in `request.node_modules`
+
+        :param ros_bt_py_msgs.srv.GetAvailableNodesRequest request:
+
+        If `request.node_modules` is not empty, try to load those
+        modules before responding.
+
+        :returns: :class:`ros_bt_py_msgs.src.GetAvailableNodesResponse`
+        """
+        for module_name in request.node_modules:
+            if module_name and load_node_module(module_name) is None:
+                response.success = False
+                response.error_message = f"Failed to import module {module_name}"
+                return response
+
+        @typechecked
+        def to_node_io(data_map: dict[str, type | OptionRef]) -> List[NodeIO]:
+            return [
+                NodeIO(key=name, serialized_type=json_encode(type_or_ref))
+                for (name, type_or_ref) in data_map.items()
+            ]
+
+        def to_node_option(data_map):
+            return [
+                NodeOption(key=name, serialized_type=json_encode(type_or_ref))
+                for (name, type_or_ref) in data_map.items()
+            ]
+
+        response.available_nodes = []
+        for module, nodes in Node.node_classes.items():
+            for class_name, node_classes in nodes.items():
+                for node_class in node_classes:
+                    if not node_class._node_config:
+                        rclpy.logging.get_logger("get_available_nodes").warn(
+                            f"Node class: {node_class.__name__} does not have node config!"
+                        )
+                        continue
+                    max_children = node_class._node_config.max_children
+                    max_children = -1 if max_children is None else max_children
+                    doc = inspect.getdoc(node_class) or ""
+                    response.available_nodes.append(
+                        DocumentedNode(
+                            module=module,
+                            node_class=class_name,
+                            version=node_class._node_config.version,
+                            max_children=max_children,
+                            options=to_node_option(node_class._node_config.options),
+                            inputs=to_node_io(node_class._node_config.inputs),
+                            outputs=to_node_io(node_class._node_config.outputs),
+                            doc=str(doc),
+                            tags=node_class._node_config.tags,
+                        )
+                    )
+
+        response.success = True
         return response
