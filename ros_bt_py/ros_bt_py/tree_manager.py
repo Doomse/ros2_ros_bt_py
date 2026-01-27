@@ -38,7 +38,6 @@ from typing import Any, Callable, Dict, Optional, List, cast
 from result import Err, Ok, Result
 
 import rclpy
-import rclpy.logging
 from rclpy.utilities import ok
 import rclpy.node
 from rclpy.duration import Duration
@@ -51,11 +50,7 @@ from typeguard import typechecked
 
 from ros_bt_py.migrate_tree_files import migrate_legacy_tree_structure
 from ros_bt_py_interfaces.msg import (
-    DocumentedNode,
     NodeStructure,
-    NodeState,
-    NodeIO,
-    NodeOption,
     NodeDataLocation,
     TreeStructure,
     TreeStructureList,
@@ -72,7 +67,6 @@ from ros_bt_py_interfaces.srv import (
     ClearTree,
     ControlTreeExecution,
     GenerateSubtree,
-    GetAvailableNodes,
     GetSubtree,
     LoadTree,
     LoadTreeFromPath,
@@ -83,7 +77,6 @@ from ros_bt_py_interfaces.srv import (
     RemoveNode,
     ReplaceNode,
     SetOptions,
-    SetSimulateTick,
     WireNodeData,
 )
 
@@ -101,11 +94,10 @@ from ros_bt_py.exceptions import (
 )
 from ros_bt_py.helpers import (
     BTNodeState,
-    json_encode,
     json_decode,
 )
 from ros_bt_py.ros_helpers import ros_to_uuid, uuid_to_ros
-from ros_bt_py.node import Node, load_node_module, increment_name
+from ros_bt_py.node import Node, load_node_module
 from ros_bt_py.node_config import OptionRef
 
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus
@@ -245,74 +237,6 @@ def load_tree_from_file(
 
     response.success = True
     response.tree = tree
-    return response
-
-
-@typechecked
-def get_available_nodes(
-    request: GetAvailableNodes.Request, response: GetAvailableNodes.Response
-) -> GetAvailableNodes.Response:
-    """
-    List the types of nodes that are currently known.
-
-    This includes all nodes from modules that were passed to our
-    constructor in `module_list`, ones from modules that nodes have
-    been successfully loaded from since launch, and ones from
-    modules explicitly asked for in `request.node_modules`
-
-    :param ros_bt_py_msgs.srv.GetAvailableNodesRequest request:
-
-    If `request.node_modules` is not empty, try to load those
-    modules before responding.
-
-    :returns: :class:`ros_bt_py_msgs.src.GetAvailableNodesResponse`
-    """
-    for module_name in request.node_modules:
-        if module_name and load_node_module(module_name) is None:
-            response.success = False
-            response.error_message = f"Failed to import module {module_name}"
-            return response
-
-    @typechecked
-    def to_node_io(data_map: Dict[str, type | OptionRef]) -> List[NodeIO]:
-        return [
-            NodeIO(key=name, serialized_type=json_encode(type_or_ref))
-            for (name, type_or_ref) in data_map.items()
-        ]
-
-    def to_node_option(data_map):
-        return [
-            NodeOption(key=name, serialized_type=json_encode(type_or_ref))
-            for (name, type_or_ref) in data_map.items()
-        ]
-
-    response.available_nodes = []
-    for module, nodes in Node.node_classes.items():
-        for class_name, node_classes in nodes.items():
-            for node_class in node_classes:
-                if not node_class._node_config:
-                    rclpy.logging.get_logger("get_available_nodes").warn(
-                        f"Node class: {node_class.__name__} does not have node config!"
-                    )
-                    continue
-                max_children = node_class._node_config.max_children
-                max_children = -1 if max_children is None else max_children
-                doc = inspect.getdoc(node_class) or ""
-                response.available_nodes.append(
-                    DocumentedNode(
-                        module=module,
-                        node_class=class_name,
-                        version=node_class._node_config.version,
-                        max_children=max_children,
-                        options=to_node_option(node_class._node_config.options),
-                        inputs=to_node_io(node_class._node_config.inputs),
-                        outputs=to_node_io(node_class._node_config.outputs),
-                        doc=str(doc),
-                        tags=node_class._node_config.tags,
-                    )
-                )
-
-    response.success = True
     return response
 
 

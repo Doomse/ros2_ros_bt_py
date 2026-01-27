@@ -86,7 +86,6 @@ from ros_bt_py.tree_manager import (
     TreeManager,
     get_success,
     get_error_message,
-    get_available_nodes,
 )
 from ros_bt_py.debug_manager import DebugManager
 from ros_bt_py.subtree_manager import SubtreeManager
@@ -255,6 +254,12 @@ class TreeNode(Node):
             callback=self.package_manager.get_storage_folders,
             callback_group=self.package_manager_service_callback_group,
         )
+        self.get_available_nodes_service = self.create_service(
+            GetAvailableNodes,
+            "~/get_available_nodes",
+            callback=self.package_manager.get_available_nodes,
+            callback_group=self.tree_manager_service_callback_group,
+        )
 
         self.package_manager.publish_message_list()
         self.get_logger().info("initialized package manager")
@@ -326,12 +331,6 @@ class TreeNode(Node):
             ControlTreeExecution,
             "~/control_tree_execution",
             callback=self.tree_manager.control_execution,
-            callback_group=self.tree_manager_service_callback_group,
-        )
-        self.get_available_nodes_service = self.create_service(
-            GetAvailableNodes,
-            "~/get_available_nodes",
-            callback=get_available_nodes,
             callback_group=self.tree_manager_service_callback_group,
         )
         self.get_subtree_service = self.create_service(
