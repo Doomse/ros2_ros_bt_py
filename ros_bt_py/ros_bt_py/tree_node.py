@@ -82,11 +82,7 @@ from ros_bt_py_interfaces.srv import (
 
 from std_srvs.srv import SetBool
 
-from ros_bt_py.tree_manager import (
-    TreeManager,
-    get_success,
-    get_error_message,
-)
+from ros_bt_py.tree_edit_manager import TreeEditManager
 from ros_bt_py.debug_manager import DebugManager
 from ros_bt_py.subtree_manager import SubtreeManager
 from ros_bt_py.package_manager import PackageManager
@@ -258,7 +254,7 @@ class TreeNode(Node):
             GetAvailableNodes,
             "~/get_available_nodes",
             callback=self.package_manager.get_available_nodes,
-            callback_group=self.tree_manager_service_callback_group,
+            callback_group=self.package_manager_service_callback_group,
         )
 
         self.package_manager.publish_message_list()
@@ -271,7 +267,7 @@ class TreeNode(Node):
             node_diagnostics_publish_callback=self.node_diagnostics_pub.publish,
         )
         self.subtree_manager = SubtreeManager()
-        self.tree_manager = TreeManager(
+        self.tree_manager = TreeEditManager(
             ros_node=self,
             module_list=params.node_modules,
             debug_manager=self.debug_manager,
@@ -478,9 +474,9 @@ class TreeNode(Node):
                 ),
                 ControlTreeExecution.Response(),
             )
-            if not get_success(response):
+            if not response.success:
                 self.get_logger().error(
-                    f"Failed to shut down Behavior Tree: {get_error_message(response)}"
+                    f"Failed to shut down Behavior Tree: {response.error_message}"
                 )
 
 

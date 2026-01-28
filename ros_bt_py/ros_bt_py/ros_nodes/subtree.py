@@ -36,19 +36,19 @@ from rclpy.node import Node
 from ros_bt_py_interfaces.msg._node_structure import NodeStructure
 
 from ros_bt_py_interfaces.msg import UtilityBounds, TreeStructure, NodeDataLocation
-from ros_bt_py_interfaces.srv import LoadTree
+from ros_bt_py_interfaces.srv import LoadTreeFromPath
 
 from ros_bt_py.debug_manager import DebugManager
 from ros_bt_py.subtree_manager import SubtreeManager
 from ros_bt_py.exceptions import BehaviorTreeException
-from ros_bt_py.tree_manager import TreeManager, get_success, get_error_message
+from ros_bt_py.tree_exec_manager import TreeExecManager
 from ros_bt_py.node import Leaf, define_bt_node
 from ros_bt_py.node import Node as BTNode
 from ros_bt_py.node_config import NodeConfig
 
 from ros_bt_py.custom_types import FilePath
 from ros_bt_py.helpers import BTNodeState
-from ros_bt_py.ros_helpers import ros_to_uuid, uuid_to_ros
+from ros_bt_py.ros_helpers import ros_to_uuid
 
 
 # Type alias for ros uuids
@@ -79,8 +79,6 @@ class Subtree(Leaf):
     at that point we don't know their names or types yet.
     """
 
-    manager: TreeManager
-
     def __init__(  # noqa: C901
         self,
         node_id: Optional[uuid.UUID] = None,
@@ -108,7 +106,7 @@ class Subtree(Leaf):
         # since the subtree gets a prefix, we can just have it use the
         # parent debug manager
         self.nested_subtree_manager = SubtreeManager()
-        self.manager: TreeManager = TreeManager(
+        self.manager: TreeExecManager = TreeExecManager(
             ros_node=self.ros_node,
             name=name,
             tree_id=self.node_id,
@@ -131,27 +129,22 @@ class Subtree(Leaf):
             )
 
     def load_subtree(self) -> Result[None, BehaviorTreeException]:
-        response = LoadTree.Response()
-        response = self.manager.load_tree(
-            request=LoadTree.Request(
-                tree=TreeStructure(
-                    path=self.options["subtree_path"].path,
-                    name=self.name,
-                )
-            ),
+        response = LoadTreeFromPath.Response()
+        response = self.manager.load_tree_from_path(
+            request=LoadTreeFromPath.Request(path=self.options["subtree_path"].path),
             response=response,
         )
 
-        if not get_success(response):
+        if not response.success:
             self.logwarn(
-                f"Failed to load subtree {self.name}: {get_error_message(response)}"
+                f"Failed to load subtree {self.name}: {response.error_message}"
             )
             # TODO Should this be flagged as broken, since we convey load failure as an output
             #   Suggesting that it is intended behaviour and not an error.
             self.state = BTNodeState.BROKEN
 
             self.outputs["load_success"] = False
-            self.outputs["load_error_msg"] = get_error_message(response)
+            self.outputs["load_error_msg"] = response.error_message
             return Ok(None)
         else:
             self.outputs["load_success"] = True
