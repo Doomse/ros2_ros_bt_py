@@ -243,8 +243,6 @@ def migrate_legacy_tree_structure(tree_dict: dict) -> Result[dict, str]:
     if tree_version < Version("0.6.0"):
         tree_dict = assign_uuids(tree_dict)
 
-    # Once all migrations are successful, update the version number
-    tree_dict["version"] = metadata.version("ros_bt_py")
     return Ok(tree_dict)
 
 
@@ -264,6 +262,14 @@ def migrate_tree_file(file: str) -> Result[str, str]:
             return Err(e)
         case Ok(d):
             new_tree_dict = d
+
+    # Don't write the migration to a new file if there were no actual changes
+    if new_tree_dict == tree_dict:
+        new_tree_dict = tree_dict
+        new_file = file
+
+    # Always update the version number once the migration is completed
+    new_tree_dict["version"] = metadata.version("ros_bt_py")
 
     with open(new_file, "w+") as f:
         f.write(yaml.safe_dump(new_tree_dict, sort_keys=False))
