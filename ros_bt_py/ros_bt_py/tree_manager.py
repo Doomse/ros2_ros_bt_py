@@ -48,7 +48,7 @@ import yaml.scanner
 from typeguard import typechecked
 
 
-from ros_bt_py.migrate_tree_files import migrate_legacy_tree_structure
+from ros_bt_py.migrate_tree_files import migrate_from_file_url
 from ros_bt_py.logging_manager import LoggingManager
 from ros_bt_py_interfaces.msg import (
     DocumentedNode,
@@ -154,18 +154,6 @@ def parse_tree_yaml(tree_yaml: str) -> MigrateTree.Response:
         if datum is None:
             continue
         if not read_data:
-            if Version(datum.get("version", "0.0.0")) < Version(
-                metadata.version("ros_bt_py")
-            ):
-                match migrate_legacy_tree_structure(datum):
-                    case Err(e):
-                        response.success = False
-                        response.error_message = (
-                            f"Failed to migrate legacy tree file: {e}"
-                        )
-                        return response
-                    case Ok(d):
-                        datum = d
             datum.pop("version")
             rosidl_runtime_py.set_message_fields(response.tree, datum)
             read_data = True
@@ -201,22 +189,29 @@ def load_tree_from_file(
             )
             return response
 
-        if tree.path.startswith("file://"):
-            file_path = tree.path[len("file://") :]
+        # Hand url to migration utility, check result url to see if a migration was run
+        match migrate_from_file_url(tree.path):
+            case Err(e):
+                response.success = False
+                response.error_message = e
+                return response
+            case Ok(u):
+                tree_url = u
 
-        elif tree.path.startswith("package://"):
-            package_name = tree.path[len("package://") :].split("/", 1)[0]
+        if tree_url.startswith("file://"):
+            file_path = tree_url[len("file://") :]
+
+        elif tree_url.startswith("package://"):
+            package_name = tree_url[len("package://") :].split("/", 1)[0]
             package_path = ament_index_python.get_package_share_directory(
                 package_name=package_name
             )
-            file_path = (
-                package_path + tree.path[len("package://") + len(package_name) :]
-            )
+            file_path = package_path + tree_url[len("package://") + len(package_name) :]
 
         else:
             response.success = False
             response.error_message = (
-                f'Tree path "{tree.path}" is malformed. It needs to start with '
+                f'Tree path "{tree_url}" is malformed. It needs to start with '
                 f'either "file://" or "package://"'
             )
             return response
@@ -240,7 +235,7 @@ def load_tree_from_file(
                 )
                 return response
             tree = response.tree
-            tree.path = request.tree.path
+            tree.path = tree_url
 
     response.success = True
     response.tree = tree
@@ -827,6 +822,7 @@ class TreeManager:
 
         response.success = load_tree_response.success
         response.error_message = load_tree_response.error_message
+        response.actual_path = load_tree_response.actual_path
 
         return response
 
@@ -858,6 +854,7 @@ class TreeManager:
             return response
 
         tree = load_response.tree
+        response.actual_path = tree.path
 
         tree.tree_id = uuid_to_ros(self.tree_id)
 

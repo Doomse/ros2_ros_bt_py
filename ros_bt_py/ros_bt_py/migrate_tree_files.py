@@ -36,6 +36,7 @@ from importlib import metadata
 from packaging.version import Version
 from typing import Literal
 from result import Result, Ok, Err
+import ament_index_python
 from ros_bt_py.node import Node
 from ros_bt_py.custom_types import (
     FilePath,
@@ -247,27 +248,72 @@ def migrate_legacy_tree_structure(tree_dict: dict) -> Result[dict, str]:
     return Ok(tree_dict)
 
 
+def migrate_tree_file(file: str) -> Result[str, str]:
+    name, ext = os.path.splitext(file)
+    new_file = f"{name}_new{ext}"
+    counter = 1
+    while os.path.exists(new_file):
+        new_file = f"{name}_new_{counter}{ext}"
+        counter += 1
+
+    with open(file, "r") as f:
+        tree_dict = yaml.safe_load(f.read())
+
+    match migrate_legacy_tree_structure(tree_dict):
+        case Err(e):
+            return Err(e)
+        case Ok(d):
+            new_tree_dict = d
+
+    with open(new_file, "w+") as f:
+        f.write(yaml.safe_dump(new_tree_dict, sort_keys=False))
+
+    return Ok(new_file)
+
+
+# If there are no migrations to be run, just returns the given url.
+#   If the tree was migrated, returns the url of the new version.
+def migrate_from_file_url(url: str) -> Result[str, str]:
+    try:
+        if url.startswith("file://"):
+            file_path = url[len("file://") :]
+            from_package = False
+        elif url.startswith("package://"):
+            package_name = url[len("package://") :].split("/", 1)[0]
+            package_path = ament_index_python.get_package_share_directory(
+                package_name=package_name
+            )
+            file_path = package_path + url[len("package://") + len(package_name) :]
+            from_package = True
+        else:
+            return Err(f"Invalid file url {url}")
+
+        with open(file_path, "r") as f:
+            tree_version = Version(yaml.safe_load(f.read()).get("version", "0.0.0"))
+
+        if tree_version >= Version(metadata.version("ros_bt_py")):
+            # File up to date, nothing to do
+            return Ok(url)
+
+        if from_package:
+            return Err(f"Cannot migrate tree files from package source {url}")
+
+        match migrate_tree_file(file_path):
+            case Err(e):
+                return Err(e)
+            case Ok(new_path):
+                return Ok(f"file://{new_path}")
+    # Catch all exceptions so we never crash
+    except Exception as e:
+        return Err(f"Migration failed due to {str(e)}")
+
+
 def main():
     for file in sys.argv[1:]:
         print(f"Migrating file {file}")
 
-        name, ext = os.path.splitext(file)
-        new_file = f"{name}_new{ext}"
-        counter = 1
-        while os.path.exists(new_file):
-            new_file = f"{name}_new_{counter}{ext}"
-            counter += 1
-
-        with open(file, "r") as f:
-            tree_dict = yaml.safe_load(f.read())
-
-        match migrate_legacy_tree_structure(tree_dict):
+        match migrate_tree_file(file):
             case Err(e):
                 print(f"Failed to migrate: {e}")
-                continue
-            case Ok(d):
-                new_tree_dict = d
-
-        with open(new_file, "w+") as f:
-            f.write(yaml.safe_dump(new_tree_dict, sort_keys=False))
-        print(f"Saved migration to {new_file}")
+            case Ok(new_file):
+                print(f"Saved migration to {new_file}")
