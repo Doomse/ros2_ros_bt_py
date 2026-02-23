@@ -25,6 +25,7 @@
 # CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
+from copy import deepcopy
 import importlib
 import itertools
 import json
@@ -247,6 +248,75 @@ def update_action_io(tree_dict: dict):
         key = key.replace("result_", "result.")
         key = key.replace("feedback_", "feedback.")
         wiring_dict["source"]["data_key"] = key
+    for public_data_dict in tree_dict["public_node_data"]:
+        if public_data_dict["node_id"] not in action_node_ids:
+            continue
+        key = cast(str, public_data_dict["data_key"])
+        key = key.replace("result_", "result.")
+        key = key.replace("feedback_", "feedback.")
+        public_data_dict["data_key"] = key
+    return tree_dict
+
+
+def update_subtree_io(tree_dict) -> Result[dict, str]:
+    def update_io_key(subtree_dict: dict, io_key: str):
+        key_parts = io_key.split(".")
+        if len(key_parts) != 2:
+            return io_key
+        for node_dict in subtree_dict["nodes"]:
+            if node_dict["name"] == key_parts[0]:
+                return node_dict["node_id"] + "." + key_parts[1]
+        print(f"Can't find node with name {key_parts[0]}")
+        return io_key
+
+    for node_dict in tree_dict["nodes"]:
+        if (
+            node_dict["node_class"] != "Subtree"
+            or node_dict["module"] != "ros_bt_py.ros_nodes.subtree"
+        ):
+            continue
+        for option_dict in node_dict["options"]:
+            if option_dict["key"] != "subtree_path":
+                continue
+            path_dict = json.loads(option_dict["serialized_value"])
+            match migrate_from_file_url(path_dict["path"]):
+                case Err(e):
+                    return Err(f"Cannot migrate subtree: {e}")
+                case Ok(u):
+                    url = u
+            path_dict["path"] = url
+            option_dict["serialized_value"] = json.dumps(path_dict)
+        if url.startswith("file://"):
+            file_path = url[len("file://") :]
+        elif url.startswith("package://"):
+            package_name = url[len("package://") :].split("/", 1)[0]
+            package_path = ament_index_python.get_package_share_directory(
+                package_name=package_name
+            )
+            file_path = package_path + url[len("package://") + len(package_name) :]
+        else:
+            return Err(f"Invalid file url {url}")
+        with open(file_path, "r") as f:
+            subtree_dict = yaml.safe_load(f.read())
+        for input_dict in node_dict["inputs"]:
+            input_dict["key"] = update_io_key(subtree_dict, input_dict["key"])
+        for output_dict in node_dict["outputs"]:
+            output_dict["key"] = update_io_key(subtree_dict, output_dict["key"])
+        for wiring_dict in tree_dict["data_wirings"]:
+            if wiring_dict["source"]["node_id"] == node_dict["node_id"]:
+                wiring_dict["source"]["data_key"] = update_io_key(
+                    subtree_dict, wiring_dict["source"]["data_key"]
+                )
+            if wiring_dict["target"]["node_id"] == node_dict["node_id"]:
+                wiring_dict["target"]["data_key"] = update_io_key(
+                    subtree_dict, wiring_dict["target"]["data_key"]
+                )
+        for public_data_dict in tree_dict["public_node_data"]:
+            if public_data_dict["node_id"] == node_dict["node_id"]:
+                public_data_dict["data_key"] = update_io_key(
+                    subtree_dict, public_data_dict["data_key"]
+                )
+    return Ok(tree_dict)
 
 
 def migrate_legacy_tree_structure(tree_dict: dict) -> Result[dict, str]:
@@ -268,6 +338,14 @@ def migrate_legacy_tree_structure(tree_dict: dict) -> Result[dict, str]:
     if tree_version < Version("0.6.0"):
         tree_dict = assign_uuids(tree_dict)
 
+    if tree_version < Version("0.7.0"):
+        tree_dict = update_action_io(tree_dict)
+        match update_subtree_io(tree_dict):
+            case Err(e):
+                return Err(e)
+            case Ok(d):
+                tree_dict = d
+
     return Ok(tree_dict)
 
 
@@ -281,6 +359,7 @@ def migrate_tree_file(file: str) -> Result[str, str]:
 
     with open(file, "r") as f:
         tree_dict = yaml.safe_load(f.read())
+    original_tree_dict = deepcopy(tree_dict)
 
     match migrate_legacy_tree_structure(tree_dict):
         case Err(e):
@@ -289,8 +368,9 @@ def migrate_tree_file(file: str) -> Result[str, str]:
             new_tree_dict = d
 
     # Don't write the migration to a new file if there were no actual changes
-    if new_tree_dict == tree_dict:
-        new_tree_dict = tree_dict
+    if new_tree_dict == original_tree_dict:
+        print("Tree didn't change")
+        new_tree_dict = original_tree_dict
         new_file = file
 
     # Always update the version number once the migration is completed
