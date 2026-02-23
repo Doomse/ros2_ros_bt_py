@@ -84,8 +84,8 @@ from ros_bt_py_interfaces.srv import (
 
 from std_srvs.srv import SetBool
 
-from ros_bt_py.tree_manager import (
-    TreeManager,
+from ros_bt_py.tree_edit_manager import (
+    TreeEditManager,
     get_success,
     get_error_message,
 )
@@ -271,7 +271,7 @@ class TreeNode(Node):
             GetAvailableNodes,
             "~/get_available_nodes",
             callback=self.package_manager.get_available_nodes,
-            callback_group=self.tree_manager_service_callback_group,
+            callback_group=self.package_manager_service_callback_group,
         )
 
         self.package_manager.publish_message_list()
@@ -288,7 +288,7 @@ class TreeNode(Node):
             ros_node=self,
             publish_log_callback=self.log_message_pub.publish,
         )
-        self.tree_manager = TreeManager(
+        self.tree_manager = TreeEditManager(
             ros_node=self,
             module_list=params.node_modules,
             debug_manager=self.debug_manager,

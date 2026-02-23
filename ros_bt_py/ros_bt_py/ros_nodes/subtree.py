@@ -42,7 +42,7 @@ from ros_bt_py_interfaces.srv import LoadTree
 from ros_bt_py.debug_manager import DebugManager
 from ros_bt_py.subtree_manager import SubtreeManager
 from ros_bt_py.exceptions import BehaviorTreeException
-from ros_bt_py.tree_manager import TreeManager, get_success, get_error_message
+from ros_bt_py.tree_exec_manager import TreeExecManager
 from ros_bt_py.node import Leaf, define_bt_node
 from ros_bt_py.node import Node as BTNode
 from ros_bt_py.node_config import NodeConfig
@@ -80,7 +80,7 @@ class Subtree(Leaf):
     at that point we don't know their names or types yet.
     """
 
-    manager: TreeManager
+    manager: TreeExecManager
 
     def __init__(self, *args, **kwargs) -> None:
         """Create the tree manager, load the subtree."""
@@ -107,7 +107,7 @@ class Subtree(Leaf):
             if self.logging_manager is not None
             else None
         )
-        self.manager: TreeManager = TreeManager(
+        self.manager = TreeExecManager(
             ros_node=self.ros_node,
             name=self.name,
             tree_id=self.tree_ref,
@@ -142,16 +142,16 @@ class Subtree(Leaf):
             response=response,
         )
 
-        if not get_success(response):
+        if not response.success:
             self.logwarn(
-                f"Failed to load subtree {self.name}: {get_error_message(response)}"
+                f"Failed to load subtree {self.name}: {response.error_message}"
             )
             # TODO Should this be flagged as broken, since we convey load failure as an output
             #   Suggesting that it is intended behaviour and not an error.
             self.state = BTNodeState.BROKEN
 
             self.outputs["load_success"] = False
-            self.outputs["load_error_msg"] = get_error_message(response)
+            self.outputs["load_error_msg"] = response.error_message
             return Ok(None)
         else:
             self.outputs["load_success"] = True
