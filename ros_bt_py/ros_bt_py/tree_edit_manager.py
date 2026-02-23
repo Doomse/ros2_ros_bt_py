@@ -28,7 +28,7 @@
 import inspect
 import uuid
 from copy import deepcopy
-from typing import Any, Dict, Optional, List, cast
+from typing import Any, Dict, List, cast
 
 from ros_bt_py.tree_exec_manager import TreeExecManager, is_edit_service
 from ros_bt_py.vendor.result import Err, Ok, Result
@@ -216,7 +216,7 @@ class TreeEditManager(TreeExecManager):
         if nodes_in_cycles:
             response.success = False
             response.error_message = (
-                f"Found cycles in tree {self.tree_structure.name} after inserting node "
+                f"Found cycles in tree {self.name} after inserting node "
                 f"{request.node.name}. Nodes in cycles: {str(nodes_in_cycles)}"
             )
             # First, remove all of the node's children to avoid infinite
@@ -234,7 +234,7 @@ class TreeEditManager(TreeExecManager):
                 response=RemoveNode.Response(),
             )
             return response
-        self.publish_structure()
+
         return response
 
     @is_edit_service
@@ -243,9 +243,7 @@ class TreeEditManager(TreeExecManager):
         self, request: ChangeTreeName.Request, response: ChangeTreeName.Response
     ) -> ChangeTreeName.Response:
         """Change the name of the currently loaded tree."""
-        self.tree_structure.name = request.name
-        self.logging_manager.set_tree_info(self.tree_id, request.name)
-        self.publish_structure()
+        self.name = request.name
 
         response.success = True
 
@@ -274,8 +272,7 @@ class TreeEditManager(TreeExecManager):
         if node_id not in self.nodes:
             response.success = False
             response.error_message = (
-                f"No node with id {request.node_id} in "
-                f"tree {self.tree_structure.name}"
+                f"No node with id {request.node_id} in " f"tree {self.name}"
             )
             return response
 
@@ -300,7 +297,7 @@ class TreeEditManager(TreeExecManager):
                     response.success = False
                     response.error_message = (
                         f"Error while removing children of node {target_node.name}: "
-                        f"No node with id {n_id} in tree {self.tree_structure.name}"
+                        f"No node with id {n_id} in tree {self.name}"
                     )
                     return response
                 node_ids_to_remove.extend(
@@ -315,7 +312,7 @@ class TreeEditManager(TreeExecManager):
             WireNodeData.Request(
                 wirings=[
                     wiring
-                    for wiring in self.tree_structure.data_wirings
+                    for wiring in self._tree_structure.data_wirings
                     # Wirings coming from the internal state will have valid node ids
                     if (
                         ros_to_uuid(wiring.source.node_id).unwrap()
@@ -380,11 +377,11 @@ class TreeEditManager(TreeExecManager):
             for child in target_node.children:
                 child.parent = None
 
-        # Keep tree_structure up-to-date
+        # Keep tree structure up-to-date
         # TODO The unwire_data call above should already update this
-        self.tree_structure.data_wirings = [
+        self._tree_structure.data_wirings = [
             wiring
-            for wiring in self.tree_structure.data_wirings
+            for wiring in self._tree_structure.data_wirings
             # Wirings coming from the internal state will have valid node ids
             if (
                 ros_to_uuid(wiring.source.node_id).unwrap() not in removed_node_ids
@@ -392,9 +389,9 @@ class TreeEditManager(TreeExecManager):
             )
         ]
 
-        self.tree_structure.public_node_data = [
+        self._tree_structure.public_node_data = [
             data
-            for data in self.tree_structure.public_node_data
+            for data in self._tree_structure.public_node_data
             # Data coming from the internal state will have valid node ids
             if ros_to_uuid(data.node_id).unwrap() not in removed_node_ids
         ]
@@ -403,7 +400,6 @@ class TreeEditManager(TreeExecManager):
             self.subtree_manager.remove_subtree(n_id)
 
         response.success = True
-        self.publish_structure()
         return response
 
     @is_edit_service
@@ -423,7 +419,7 @@ class TreeEditManager(TreeExecManager):
         if node_id not in self.nodes:
             response.success = False
             response.error_message = (
-                f"No node with id {node_id} in" f" tree {self.tree_structure.name}"
+                f"No node with id {node_id} in" f" tree {self.name}"
             )
             return response
 
@@ -444,7 +440,7 @@ class TreeEditManager(TreeExecManager):
         wire_request = WireNodeData.Request(
             wirings=[
                 wiring
-                for wiring in self.tree_structure.data_wirings
+                for wiring in self._tree_structure.data_wirings
                 if old_node.node_id
                 in [
                     ros_to_uuid(wiring.source.node_id),
@@ -548,7 +544,6 @@ class TreeEditManager(TreeExecManager):
             return response
 
         response.success = True
-        self.publish_structure()
         return response
 
     @is_edit_service
@@ -573,7 +568,7 @@ class TreeEditManager(TreeExecManager):
         if node_id not in self.nodes:
             response.success = False
             response.error_message = (
-                f"Unable to find node {node_id} in tree " f"{self.tree_structure.name}"
+                f"Unable to find node {node_id} in tree " f"{self.name}"
             )
             return response
 
@@ -700,7 +695,7 @@ class TreeEditManager(TreeExecManager):
         wire_request = WireNodeData.Request(
             wirings=[
                 wiring
-                for wiring in self.tree_structure.data_wirings
+                for wiring in self._tree_structure.data_wirings
                 if node_id
                 in [
                     ros_to_uuid(wiring.source.node_id).unwrap(),
@@ -845,7 +840,6 @@ class TreeEditManager(TreeExecManager):
                 return response
 
         # We made it!
-        self.publish_structure()
         response.success = True
         return response
 
@@ -890,7 +884,6 @@ class TreeEditManager(TreeExecManager):
                     )
                     return response
 
-            self.publish_structure()
             response.success = True
             return response
 
@@ -960,7 +953,6 @@ class TreeEditManager(TreeExecManager):
             )
             return response
 
-        self.publish_structure()
         response.success = True
         return response
 
@@ -1102,7 +1094,6 @@ class TreeEditManager(TreeExecManager):
         )
 
         if not get_success(res):
-            # self.publish_structure()
             response.success = False
             response.error_message = (
                 f'Could not remove old node: "{get_error_message(res)}"'
@@ -1124,7 +1115,6 @@ class TreeEditManager(TreeExecManager):
                 response.error_message = move_response.error_message
                 return response
 
-        self.publish_structure()
         response.success = True
         return response
 
@@ -1219,8 +1209,7 @@ class TreeEditManager(TreeExecManager):
             # only actually wire any data if there were no errors
             # We made it here, so all the Wirings should be valid. Time to save
             # them.
-            cast(list, self.tree_structure.data_wirings).extend(successful_wirings)
-            self.publish_structure()
+            cast(list, self._tree_structure.data_wirings).extend(successful_wirings)
         return response
 
     @is_edit_service
@@ -1314,9 +1303,8 @@ class TreeEditManager(TreeExecManager):
             # We've removed these NodeDataWirings, so remove them from tree_msg as
             # well.
             for wiring in request.wirings:
-                if wiring in self.tree_structure.data_wirings:
-                    cast(list, self.tree_structure.data_wirings).remove(wiring)
-            self.publish_structure()
+                if wiring in self._tree_structure.data_wirings:
+                    cast(list, self._tree_structure.data_wirings).remove(wiring)
         return response
 
     @typechecked
@@ -1361,7 +1349,7 @@ class TreeEditManager(TreeExecManager):
         This also adds all relevant parents to the tree message, resulting in a tree that is
         executable and does not contain any orpahned nodes.
         """
-        whole_tree = deepcopy(self.tree_structure)
+        whole_tree = deepcopy(self._tree_structure)
 
         root_result = self.find_root()
         if root_result.is_err():
@@ -1409,19 +1397,17 @@ class TreeEditManager(TreeExecManager):
                     RemoveNode.Request(node_id=node_id, remove_children=False),
                     RemoveNode.Response(),
                 )
-            root_result = manager.find_root()
-            if root_result.is_err():
-                response.success = False
-                response.error_message = (
-                    "Could not determine new subtree root: "
-                    f"{str(root_result.unwrap_err())}"
-                )
-                return response
-            root = root_result.unwrap()
-            if not root:
+            match manager.find_root():
+                case Err(e):
+                    response.success = False
+                    response.error_message = (
+                        f"Could not determine new subtree root: {str(e)}"
+                    )
+                    return response
+                case Ok(r):
+                    root = r
+            if root is None:
                 self.get_logger().info("No nodes in tree")
-            else:
-                manager.tree_structure.root_id = uuid_to_ros(root.node_id)
             response.success = True
             response.tree = manager.structure_to_msg()
             return response

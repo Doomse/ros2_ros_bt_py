@@ -105,16 +105,20 @@ def is_edit_service(func):
 
     @wraps(func)
     def service_handler(self: "TreeExecManager", request: Any, response: Any, **kwds):
-        tree_state = self.state
-        if tree_state != TreeState.EDITABLE:
+        if self.state != TreeState.EDITABLE:
             response.success = False
             response.error_message = (
-                f"Cannot edit tree in state {tree_state}."
+                f"Cannot edit tree in state {self.state}."
                 f"You need to shut down the tree to enable editing."
             )
             return response
-        with self._edit_lock:
-            return func(self, request, response, **kwds)
+        try:
+            with self._edit_lock:
+                return func(self, request, response, **kwds)
+        finally:
+            # TODO Find a way to check if we're the outermost level
+            #   to reduce repeating publish calls
+            self.publish_structure()
 
     return service_handler
 
@@ -232,8 +236,8 @@ class TreeExecManager:
     def __init__(
         self,
         ros_node: rclpy.node.Node,
-        tree_id: Optional[uuid.UUID] = None,
-        name: Optional[str] = None,
+        tree_id: uuid.UUID = uuid.UUID(int=0),
+        name: str = "UNKNOWN TREE",
         module_list: Optional[List[str]] = None,
         debug_manager: Optional[DebugManager] = None,
         subtree_manager: Optional[SubtreeManager] = None,
@@ -249,22 +253,27 @@ class TreeExecManager:
         diagnostics_frequency: float = 1.0,
     ) -> None:
         self.ros_node = ros_node
-        if name is None:
-            self.name = "UNKNOWN TREE"
-        else:
-            self.name = name
 
-        if tree_id is None:
-            self.tree_id = uuid.UUID(int=0)
-        else:
-            self.tree_id = tree_id
+        self._tree_structure = TreeStructure()
+        # These reassignments makes the typing happy,
+        #   because they ensure that `.append .extent .remove ...` exists
+        self._tree_structure.data_wirings = []
+        self._tree_structure.public_node_data = []
+
+        self._tree_state = TreeState()
+
+        self._tree_data = TreeData()
+        self.enable_publish_data = False
+
+        self.diagnostic_array = DiagnosticArray()
+        self.diagnostic_status = DiagnosticStatus()
+        self.diagnostic_array.status = [self.diagnostic_status]
 
         self.logging_manager: LoggingManager
         if logging_manager is None:
             self.logging_manager = LoggingManager(ros_node=self.ros_node)
         else:
             self.logging_manager = logging_manager
-        self.logging_manager.set_tree_info(self.tree_id, self.name)
 
         self.publish_tree_structure = publish_tree_structure_callback
         if self.publish_tree_structure is None:
@@ -320,38 +329,26 @@ class TreeExecManager:
         else:
             self.subtree_manager = subtree_manager
 
-        if tick_frequency_hz == 0.0:
-            tick_frequency_hz = 10.0
+        self._tree_lock = Lock()
+        # Initialized ROS messages and component managers, properties should be safe now
 
-        self.tick_sliding_window = [tick_frequency_hz] * 10
+        self.tree_id = tree_id
+        self.name = name
+        self.state = TreeState.EDITABLE
+        self.tick_frequency_hz = tick_frequency_hz
+
+        self.rate = self.ros_node.create_rate(self.tick_frequency_hz)
+
+        self.tick_sliding_window = [self.tick_frequency_hz] * 10
 
         self.nodes: Dict[uuid.UUID, Node] = {}
 
-        self._tree_lock = Lock()
         self._edit_lock = RLock()
         # Stop the tick thread after a single tick
         self._once: bool = False
         # Stop the tick thread after the tree returns something other than
         # RUNNING for the first time
         self._stop_after_result: bool = False
-
-        self.tree_structure = TreeStructure(tree_id=uuid_to_ros(self.tree_id))
-        # These reassignments makes the typing happy,
-        #   because they ensure that `.append .extent .remove ...` exists
-        self.tree_structure.data_wirings = []
-        self.tree_structure.public_node_data = []
-        self.tree_structure.name = self.name
-        self.tree_structure.tick_frequency_hz = tick_frequency_hz
-        self.rate = self.ros_node.create_rate(self.tree_structure.tick_frequency_hz)
-
-        self.tree_state = TreeState(tree_id=uuid_to_ros(self.tree_id))
-
-        self.tree_data = TreeData(tree_id=uuid_to_ros(self.tree_id))
-        self.enable_publish_data = False
-
-        self.diagnostic_array = DiagnosticArray()
-        self.diagnostic_status = DiagnosticStatus()
-        self.diagnostic_array.status = [self.diagnostic_status]
 
         self._last_error: Optional[str] = None
 
@@ -373,17 +370,71 @@ class TreeExecManager:
             )
 
     @property
+    @typechecked
+    def tree_id(self) -> Result[uuid.UUID, str]:
+        return ros_to_uuid(self._tree_structure.tree_id)
+
+    @tree_id.setter
+    @typechecked
+    def tree_id(self, new_tree_id: uuid.UUID) -> None:
+        with self._tree_lock:
+            self._tree_structure.tree_id = uuid_to_ros(new_tree_id)
+            self._tree_state.tree_id = uuid_to_ros(new_tree_id)
+            self._tree_data.tree_id = uuid_to_ros(new_tree_id)
+            self.logging_manager.set_tree_id(new_tree_id)
+
+    @property
+    @typechecked
+    def name(self) -> str:
+        return self._tree_structure.name
+
+    @name.setter
+    @typechecked
+    def name(self, new_name: str) -> None:
+        with self._tree_lock:
+            self._tree_structure.name = new_name
+            self.logging_manager.set_tree_name(new_name)
+
+    @property
+    @typechecked
+    def root_id(self) -> Result[uuid.UUID, str]:
+        return ros_to_uuid(self._tree_structure.root_id)
+
+    @root_id.setter
+    @typechecked
+    def root_id(self, new_root_id: uuid.UUID) -> None:
+        with self._tree_lock:
+            self._tree_structure.root_id = uuid_to_ros(new_root_id)
+
+    @property
+    @typechecked
     def state(self) -> str:
-        return self.tree_state.state
+        return self._tree_state.state
 
     @state.setter
     @typechecked
     def state(self, new_state: str) -> None:
         with self._tree_lock:
-            self.tree_state.state = new_state
+            self._tree_state.state = new_state
             self.ros_node.get_logger().debug(
-                f"Updating tree state to {self.tree_state.state}"
+                f"Updating tree state to {self._tree_state.state}"
             )
+
+    @property
+    @typechecked
+    def tick_frequency_hz(self) -> float:
+        return self._tree_structure.tick_frequency_hz
+
+    @tick_frequency_hz.setter
+    @typechecked
+    def tick_frequency_hz(self, frequency: float) -> None:
+        with self._tree_lock:
+            if frequency == 0.0:
+                self.get_logger().warn(
+                    f"Tick frequency of {frequency} is invalid. Setting to 10.0"
+                )
+                frequency = 10.0
+            self._tree_structure.tick_frequency_hz = frequency
 
     def get_logger(self) -> LoggingManager:
         return self.logging_manager
@@ -395,25 +446,28 @@ class TreeExecManager:
         If the BT has a name, this name will published in diagnostics.
         Otherwise, the root name of the tree is used.
         """
-        if self.tree_structure.name:
-            self.diagnostic_status.name = os.path.splitext(self.tree_structure.name)[0]
-        elif self.tree_structure.root_id:
-            self.diagnostic_status.name = self.nodes[
-                ros_to_uuid(self.tree_structure.root_id).unwrap()
-            ].name
+        if self.name:
+            self.diagnostic_status.name = os.path.splitext(self.name)[0]
+            return
+
+        match self.root_id:
+            case Ok(r_id):
+                root = self.nodes.get(r_id)
+        if root is not None:
             self.get_logger().warn(
                 "No tree name was found. Diagnostics data from the behavior tree will be"
                 f"published under the name of the root_node: {self.diagnostic_status.name}",
                 internal=True,
             )
-        else:
-            self.diagnostic_status.name = ""
-            self.get_logger().warn(
-                "Neither a tree name nor the name from the root_node was found."
-                "Diagnostics data from the behavior tree will be "
-                "published without further name specifications",
-                internal=True,
-            )
+            return
+
+        self.diagnostic_status.name = ""
+        self.get_logger().warn(
+            "Neither a tree name nor the name from the root_node was found."
+            "Diagnostics data from the behavior tree will be "
+            "published without further name specifications",
+            internal=True,
+        )
 
     def clear_diagnostics_name(self) -> None:
         """Clear the name for ROS diagnostics."""
@@ -514,16 +568,17 @@ class TreeExecManager:
         if len(possible_roots) > 1:
             return Err(
                 TreeTopologyError(
-                    f'Tree "{self.tree_structure.name}" has multiple nodes without parents.'
+                    f'Tree "{self.name}" has multiple nodes without parents.'
                 )
             )
         if not possible_roots:
             return Err(
                 TreeTopologyError(
-                    f'All nodes in tree "{self.tree_structure.name} have parents. You have '
+                    f'All nodes in tree "{self.name} have parents. You have '
                     "made a cycle, which makes the tree impossible to run!"
                 )
             )
+        self.root_id = possible_roots[0].node_id
         return Ok(possible_roots[0])
 
     def tick_report_exceptions(self) -> None:
@@ -577,8 +632,6 @@ class TreeExecManager:
                 TreeTopologyError("No nodes in  the tree, tick will do nothing!")
             )
 
-        with self._tree_lock:
-            self.tree_structure.root_id = uuid_to_ros(root.node_id)
         if root.state in (BTNodeState.UNINITIALIZED, BTNodeState.SHUTDOWN):
             root.setup()
             if root.state is not BTNodeState.IDLE:
@@ -617,12 +670,12 @@ class TreeExecManager:
 
             duration: Duration = tick_end_timestamp - tick_start_timestamp  # type: ignore
             # We know that Time - Time = Duration
-            tick_rate = self.tree_structure.tick_frequency_hz
+            tick_rate = self.tick_frequency_hz
 
             if (1 / tick_rate) > (duration.nanoseconds * 1e9):
                 self.get_logger().warn(
                     "Tick took longer than set period, cannot tick at "
-                    f"{self.tree_structure.tick_frequency_hz:.2f} Hz"
+                    f"{self.tick_frequency_hz:.2f} Hz"
                 )
 
             self.tick_sliding_window.pop(0)
@@ -674,20 +727,10 @@ class TreeExecManager:
 
         self.nodes = {}
         with self._tree_lock:
-            self.tree_structure = TreeStructure(
-                tree_id=uuid_to_ros(self.tree_id),
-                name="",
-                tick_frequency_hz=self.tree_structure.tick_frequency_hz,
-            )
             # These reassignments makes the typing happy,
             #   because they ensure that `.append .extent .remove ...` exists
-            self.tree_structure.data_wirings = []
-            self.tree_structure.public_node_data = []
-            self.tree_state = TreeState(
-                tree_id=uuid_to_ros(self.tree_id), state=TreeState.EDITABLE
-            )
-            self.tree_data = TreeData(tree_id=uuid_to_ros(self.tree_id))
-        self.publish_structure()
+            self._tree_structure.data_wirings = []
+            self._tree_structure.public_node_data = []
         self.subtree_manager.clear_subtrees()
         self.clear_diagnostics_name()
         response.success = True
@@ -701,7 +744,7 @@ class TreeExecManager:
         """Reload the currently loaded tree."""
         load_response = LoadTree.Response()
         load_response = self.load_tree(
-            request=LoadTree.Request(tree=self.tree_structure), response=load_response
+            request=LoadTree.Request(tree=self._tree_structure), response=load_response
         )
 
         response.success = load_response.success
@@ -757,8 +800,6 @@ class TreeExecManager:
 
         tree = load_response.tree
 
-        tree.tree_id = uuid_to_ros(self.tree_id)
-
         for public_datum in tree.public_node_data:
             if public_datum.data_kind == NodeDataLocation.OPTION_DATA:
                 response.success = False
@@ -768,104 +809,83 @@ class TreeExecManager:
 
                 return response
 
-        try:
-            # Clear existing tree, then replace it with the message's contents
-            self.clear(None, ClearTree.Response())
-            # First just add all nodes to the tree, then restore tree structure
-            for node in tree.nodes:
-                match self.instantiate_node_from_msg(
-                    node_msg=node,
-                    ros_node=self.ros_node,
-                    permissive=request.permissive,
-                ):
+        # Clear existing tree, then replace it with the message's contents
+        self.clear(None, ClearTree.Response())
+        # First just add all nodes to the tree, then restore tree structure
+        for node in tree.nodes:
+            match self.instantiate_node_from_msg(
+                node_msg=node,
+                ros_node=self.ros_node,
+                permissive=request.permissive,
+            ):
+                case Err(e):
+                    response.success = False
+                    response.error_message = str(e)
+                    return response
+                case Ok(node):
+                    self.nodes[node.node_id] = node
+
+        for node in tree.nodes:
+            # We just parsed all ids before, so we know them to be safe
+            node_id = ros_to_uuid(node.node_id).unwrap()
+            for c_id in node.child_ids:
+                match ros_to_uuid(c_id):
+                    case Err(e):
+                        response.success = False
+                        response.error_message = e
+                        return response
+                    case Ok(u):
+                        child_id = u
+                match self.nodes[node_id].add_child(self.nodes[child_id]):
                     case Err(e):
                         response.success = False
                         response.error_message = str(e)
                         return response
-                    case Ok(node):
-                        self.nodes[node.node_id] = node
+                    case Ok(_):
+                        pass
 
-            for node in tree.nodes:
-                # We just parsed all ids before, so we know them to be safe
-                node_id = ros_to_uuid(node.node_id).unwrap()
-                for c_id in node.child_ids:
-                    match ros_to_uuid(c_id):
-                        case Err(e):
-                            response.success = False
-                            response.error_message = e
-                            return response
-                        case Ok(u):
-                            child_id = u
-                    match self.nodes[node_id].add_child(self.nodes[child_id]):
-                        case Err(e):
-                            response.success = False
-                            response.error_message = str(e)
-                            return response
-                        case Ok(_):
-                            pass
+        # All nodes are added, now do the wiring
+        updated_wirings = []
+        for wiring in tree.data_wirings:
+            match self.parse_wiring_from_msg(wiring):
+                case Err(e):
+                    response.success = False
+                    response.error_message = str(e)
+                    return response
+                case Ok((s, t)):
+                    _ = s
+                    target = t
+            match target.wire_data(wiring):
+                case Err(e):
+                    response.success = False
+                    response.error_message = str(e)
+                    return response
+                case Ok(None):
+                    updated_wirings.append(wiring)
 
-            # All nodes are added, now do the wiring
-            updated_wirings = []
-            for wiring in tree.data_wirings:
-                match self.parse_wiring_from_msg(wiring):
-                    case Err(e):
-                        response.success = False
-                        response.error_message = str(e)
-                        return response
-                    case Ok((s, t)):
-                        _ = s
-                        target = t
-                match target.wire_data(wiring):
-                    case Err(e):
-                        response.success = False
-                        response.error_message = str(e)
-                        return response
-                    case Ok(None):
-                        updated_wirings.append(wiring)
+        self.name = tree.name
 
-            tree.data_wirings = updated_wirings
+        self.tick_frequency_hz = tree.tick_frequency_hz
 
-            self.tree_structure = tree
-            # These reassignments makes the typing happy,
-            #   because they ensure that `.append .extent .remove ...` exists
-            self.tree_structure.data_wirings = list(tree.data_wirings)
-            self.tree_structure.public_node_data = list(tree.public_node_data)
-            if self.tree_structure.tick_frequency_hz == 0.0:
-                self.get_logger().warn(
-                    "Tick frequency of loaded tree is 0, defaulting to 10Hz"
-                )
-                self.tree_structure.tick_frequency_hz = 10.0
+        # These reassignments makes the typing happy,
+        #   because they ensure that `.append .extent .remove ...` exists
+        self._tree_structure.data_wirings = updated_wirings
+        self._tree_structure.public_node_data = list(tree.public_node_data)
 
-            self.rate = self.ros_node.create_rate(
-                frequency=self.tree_structure.tick_frequency_hz
-            )
+        self.rate = self.ros_node.create_rate(frequency=self.tick_frequency_hz)
 
-            # Ensure Tree is editable after loading
-            self.tree_state = TreeState(tree_id=tree.tree_id)
-            self.state = TreeState.EDITABLE
+        # Clear state and data
+        self._tree_state.node_states = []
+        self._tree_data.wiring_data = []
 
-            self.tree_data = TreeData(tree_id=tree.tree_id)
+        # find and set root name
+        self.find_root()
 
-            # find and set root name
-            find_root_result = self.find_root()
-            if find_root_result.is_err():
-                response.success = False
-                response.error_message = (
-                    f"Could not find root of new tree: {find_root_result.unwrap_err()}"
-                )
-                return response
-            root = find_root_result.unwrap()
-            if root:
-                with self._tree_lock:
-                    self.tree_structure.root_id = uuid_to_ros(root.node_id)
-
-            response.success = True
-            self.get_logger().info("Successfully loaded tree")
-            if self.publish_diagnostic is None:
-                self.set_diagnostics_name()
-            return response
-        finally:
-            self.publish_structure()
+        response.success = True
+        self.get_logger().info("Successfully loaded tree")
+        if self.publish_diagnostic is None:
+            self.set_diagnostics_name()
+        return response
 
     @typechecked
     def set_publish_subtrees(
@@ -966,14 +986,12 @@ class TreeExecManager:
 
             self._tick_thread.start()
             # Give the tick thread some time to finish
-            self._tick_thread.join((1.0 / self.tree_structure.tick_frequency_hz) * 4.0)
+            self._tick_thread.join((1.0 / self.tick_frequency_hz) * 4.0)
             # If we're debugging or setting up (and ROS is not
             # shutting down), keep sleepin until the thread
             # finishes
             while self._tick_thread.is_alive() and ok():
-                self._tick_thread.join(
-                    (1.0 / self.tree_structure.tick_frequency_hz) * 4.0
-                )
+                self._tick_thread.join((1.0 / self.tick_frequency_hz) * 4.0)
             if self._tick_thread.is_alive():
                 response.success = False
                 response.error_message = (
@@ -1042,18 +1060,8 @@ class TreeExecManager:
                 self._stop_after_result = True
             # Use provided tick frequency, if any
             if request.tick_frequency_hz != 0:
-                self.tree_structure.tick_frequency_hz = request.tick_frequency_hz
-                self.rate = self.ros_node.create_rate(
-                    frequency=self.tree_structure.tick_frequency_hz
-                )
-            if self.tree_structure.tick_frequency_hz == 0:
-                self.get_logger().warn(
-                    "Loaded tree had frequency 0Hz. Defaulting to 10Hz"
-                )
-                self.tree_structure.tick_frequency_hz = 10.0
-                self.rate = self.ros_node.create_rate(
-                    frequency=self.tree_structure.tick_frequency_hz
-                )
+                self.tick_frequency_hz = request.tick_frequency_hz
+                self.rate = self.ros_node.create_rate(frequency=self.tick_frequency_hz)
             self._tick_thread.start()
             response.success = True
             response.tree_state = TreeState.TICKING
@@ -1188,17 +1196,13 @@ class TreeExecManager:
                 # we're in deep trouble.
                 if self._tick_thread.is_alive():
                     # Give the tick thread some time to finish
-                    self._tick_thread.join(
-                        (1.0 / self.tree_structure.tick_frequency_hz) * 4.0
-                    )
+                    self._tick_thread.join((1.0 / self.tick_frequency_hz) * 4.0)
 
                     # If we're debugging or setting up (and ROS is not
                     # shutting down), keep sleeping until the thread
                     # finishes
                     while self._tick_thread.is_alive() and ok():
-                        self._tick_thread.join(
-                            (1.0 / self.tree_structure.tick_frequency_hz) * 4.0
-                        )
+                        self._tick_thread.join((1.0 / self.tick_frequency_hz) * 4.0)
                     if self._tick_thread.is_alive():
                         response.success = False
                         response.error_message = (
@@ -1364,33 +1368,32 @@ class TreeExecManager:
             if root is not None:
                 get_subtree_msg_result = root.get_subtree_msg()
                 if get_subtree_msg_result.is_err():
-                    self.tree_structure.nodes = [
+                    self._tree_structure.nodes = [
                         node.to_structure_msg() for node in self.nodes.values()
                     ]
                 else:
                     subtree = get_subtree_msg_result.unwrap()[0]
-                    self.tree_structure.nodes = subtree.nodes
-                    self.tree_structure.public_node_data = subtree.public_node_data
+                    self._tree_structure.nodes = subtree.nodes
+                    self._tree_structure.public_node_data = subtree.public_node_data
             else:
-                self.tree_structure.nodes = []
+                self._tree_structure.nodes = []
         else:
             self.get_logger().warn(f"Strange topology {str(root_result.unwrap_err())}")
-            # build a tree_structure out of this strange topology,
+            # build a tree structure out of this strange topology,
             # so the user can fix it in the editor
-            self.tree_structure.nodes = [
+            self._tree_structure.nodes = [
                 node.to_structure_msg() for node in self.nodes.values()
             ]
-        return self.tree_structure
+        return self._tree_structure
 
     def state_to_msg(self) -> TreeState:
-        self.tree_state.state = self.state
-        self.tree_state.node_states = [
+        self._tree_state.node_states = [
             node.to_state_msg() for node in self.nodes.values()
         ]
-        return self.tree_state
+        return self._tree_state
 
     def data_to_msg(self) -> TreeData:
-        self.tree_data.wiring_data = []
+        self._tree_data.wiring_data = []
         for node in self.nodes.values():
-            self.tree_data.wiring_data.extend(node.wire_data_msg_list())
-        return self.tree_data
+            self._tree_data.wiring_data.extend(node.wire_data_msg_list())
+        return self._tree_data
