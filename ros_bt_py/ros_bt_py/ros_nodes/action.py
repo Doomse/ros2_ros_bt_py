@@ -542,11 +542,11 @@ class Action(Leaf):
 
         result_msg = self._result_type()
         for field in result_msg._fields_and_field_types:
-            node_outputs["result_" + field] = get_message_field_type(result_msg, field)
+            node_outputs["result." + field] = get_message_field_type(result_msg, field)
 
         feedback_msg = self._feedback_type()
         for field in feedback_msg._fields_and_field_types:
-            node_outputs["feedback_" + field] = get_message_field_type(
+            node_outputs["feedback." + field] = get_message_field_type(
                 feedback_msg, field
             )
 

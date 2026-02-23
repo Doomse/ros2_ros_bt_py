@@ -34,7 +34,7 @@ import sys
 import yaml
 from importlib import metadata
 from packaging.version import Version
-from typing import Literal
+from typing import Literal, cast
 from result import Result, Ok, Err
 import ament_index_python
 from ros_bt_py.node import Node
@@ -222,6 +222,31 @@ def assign_uuids(tree_dict: dict) -> dict:
         mapping.get(tree_dict.pop("root_name", ""), uuid.UUID(int=0))
     )
     return tree_dict
+
+
+def update_action_io(tree_dict: dict):
+    action_node_ids = []
+    for node_dict in tree_dict["nodes"]:
+        if (
+            node_dict["node_class"] == "Action"
+            and node_dict["module"] == "ros_bt_py.ros_nodes.action"
+        ):
+            action_node_ids.append(node_dict["node_id"])
+    for node_dict in tree_dict["nodes"]:
+        if node_dict["node_id"] not in action_node_ids:
+            continue
+        for output_dict in node_dict["outputs"]:
+            key = cast(str, output_dict["key"])
+            key = key.replace("result_", "result.")
+            key = key.replace("feedback_", "feedback.")
+            output_dict["key"] = key
+    for wiring_dict in tree_dict["data_wirings"]:
+        if wiring_dict["source"]["node_id"] not in action_node_ids:
+            continue
+        key = cast(str, wiring_dict["source"]["data_key"])
+        key = key.replace("result_", "result.")
+        key = key.replace("feedback_", "feedback.")
+        wiring_dict["source"]["data_key"] = key
 
 
 def migrate_legacy_tree_structure(tree_dict: dict) -> Result[dict, str]:
