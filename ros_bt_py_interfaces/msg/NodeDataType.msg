@@ -1,4 +1,4 @@
-# Copyright 2023 FZI Forschungszentrum Informatik
+# Copyright 2026 FZI Forschungszentrum Informatik
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
@@ -25,8 +25,26 @@
 # CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
-string key
-string serialized_type
-string serialized_value
 
-# string default
+uint8 BOOL_TYPE=1
+uint8 INT_TYPE=2
+uint8 FLOAT_TYPE=3
+
+# One of the constants given above
+uint8 type_identifier
+
+bool allow_dynamic
+bool allow_static
+bool is_static
+
+int64 int_min_value
+int64 int_max_value
+
+float64 float_min_value
+float64 float_max_value
+
+# If this type references another IO field, this contains the key for that field
+string reference_target
+
+# Can be used to tie multiple fields together, e.g. a Topic name its type
+uint8 interface_id
