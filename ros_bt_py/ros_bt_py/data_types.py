@@ -26,15 +26,16 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 import abc
-from typing import Any, Optional
-from typeguard import typechecked
+from copy import deepcopy
+import json
+from typing import Any, Generic, Optional, Self, Type, TypeGuard, TypeVar
+from typeguard import TypeCheckError, check_type, typechecked
 
 from ros_bt_py.vendor.result import Result, Ok, Err
 
 from ros_bt_py_interfaces.msg import NodeDataType
 
 
-@typechecked
 class DataContainer(abc.ABC):
 
     type_identifier: int
@@ -59,7 +60,7 @@ class DataContainer(abc.ABC):
         """
         super().__init__()
 
-        if not self.allow_dynamic and not self.allow_static:
+        if not allow_dynamic and not allow_static:
             raise RuntimeError(
                 "Need to allow either static or dynamic value assignment"
             )
@@ -78,14 +79,15 @@ class DataContainer(abc.ABC):
             raise RuntimeError("Cannot be dynamic when dynamic is not allowed")
 
         self.reset_updated()
-        match self.set_value(value):
-            case Err(e):
-                raise ValueError(e)
-            case Ok(None):
-                pass
+        if value is not None:
+            match self.set_value(value):
+                case Err(e):
+                    raise ValueError(e)
+                case Ok(None):
+                    pass
 
-    @abc.abstractmethod
     @classmethod
+    @abc.abstractmethod
     def _dict_from_msg(cls, msg: NodeDataType) -> dict:
         """
         Subclasses should extend this to add their specific configs
@@ -99,6 +101,8 @@ class DataContainer(abc.ABC):
 
     @classmethod
     def from_msg(cls, msg: NodeDataType) -> Result["DataContainer", str]:
+        if not hasattr(cls, "type_identifier"):
+            raise NotImplementedError("Called on abstract base class")
         if msg.type_identifier != cls.type_identifier:
             return Err("Wrong type identifier")
         return Ok(cls(**cls._dict_from_msg(msg)))
@@ -151,7 +155,7 @@ class DataContainer(abc.ABC):
         return compatible
 
     @abc.abstractmethod
-    def get_serialized_type(self) -> NodeDataType:
+    def serialize_type(self) -> NodeDataType:
         return NodeDataType(
             type_identifier=self.type_identifier,
             allow_dynamic=self.allow_dynamic,
@@ -160,21 +164,29 @@ class DataContainer(abc.ABC):
         )
 
     @abc.abstractmethod
-    def get_serialized_value(self) -> str:
-        raise NotImplementedError("Can't serialize a base class")
+    def serialize_value(self) -> str:
+        raise NotImplementedError("Can't serialize a base class value")
+
+    @abc.abstractmethod
+    def deserialize_value(self, ser_value: str) -> Result[None, str]:
+        raise NotImplementedError("Can't deserialize a base class value")
 
 
-class BoolContainer(DataContainer):
+BUILTIN = TypeVar("BUILTIN", bool, int, float, str, list, dict, bytes)
 
-    type_identifier = NodeDataType.BOOL_TYPE
-    _value: Optional[bool]
+
+@typechecked
+class BuiltinContainer(DataContainer, Generic[BUILTIN]):
+
+    _type: Type[BUILTIN]
+    _value: Optional[BUILTIN]
 
     def __init__(
         self,
         allow_dynamic: bool = True,
         allow_static: bool = False,
         is_static: bool | None = None,
-        value: Optional[bool] = None,
+        value: Optional[BUILTIN] = None,
     ) -> None:
         super().__init__(
             allow_dynamic=allow_dynamic,
@@ -183,61 +195,96 @@ class BoolContainer(DataContainer):
             value=value,
         )
 
-    @classmethod
-    def _dict_from_msg(cls, msg: NodeDataType) -> dict:
-        config = super()._dict_from_msg(msg)
-        return config
-
-    def set_value(self, value: bool) -> Result[None, str]:
-        # Nothing to do for bool values
+    def set_value(self, value: BUILTIN) -> Result[None, str]:
+        if not isinstance(value, self._type):
+            return Err(f"Given value {value} isn't of type {self._type}")
         return super().set_value(value)
 
-    def get_value(self) -> Result[bool, None]:
+    def get_value(self) -> Result[BUILTIN, None]:
         return super().get_value()
 
-    def is_compatible(self, other: DataContainer) -> bool:
+    def is_compatible(self, other: DataContainer) -> TypeGuard[Type[Self]]:
         if not isinstance(other, self.__class__):
             return False
         return super().is_compatible(other)
 
-    def get_serialized_type(self) -> NodeDataType:
-        type_msg = super().get_serialized_type()
-        # Nothing to do for bool values
-        return type_msg
-
-    def get_serialized_value(self) -> str:
+    def serialize_value(self) -> str:
         match self.get_value():
             case Err(None):
                 return ""
-            case Ok(b):
-                return str(b).lower()
+            case Ok(v):
+                return json.dumps(v)
+
+    def deserialize_value(self, ser_value: str) -> Result[None, str]:
+        value = json.loads(ser_value)
+        return self.set_value(value)
 
 
-class IntContainer(DataContainer):
+@typechecked
+class BoolContainer(BuiltinContainer[bool]):
 
-    type_identifier = NodeDataType.INT_TYPE
-    _value: Optional[int]
-    min_value: Optional[int]
-    max_value: Optional[int]
+    type_identifier = NodeDataType.BOOL_TYPE
+    _type = bool
+    _value = False
+
+    @classmethod
+    def _dict_from_msg(cls, msg: NodeDataType) -> dict:
+        # Nothing to add for bool
+        return super()._dict_from_msg(msg)
+
+    def serialize_type(self) -> NodeDataType:
+        # Nothing to add for bool
+        return super().serialize_type()
+
+
+NUM = TypeVar("NUM", int, float)
+
+
+@typechecked
+class NumericContainer(BuiltinContainer[NUM]):
+
+    min_value: NUM
+    max_value: NUM
+    lower_limit: NUM
+    upper_limit: NUM
 
     def __init__(
         self,
-        allow_dynamic: bool = True,
-        allow_static: bool = False,
-        is_static: bool | None = None,
-        value: Optional[int] = None,
-        min_value: Optional[int] = None,
-        max_value: Optional[int] = None,
+        min_value: Optional[NUM] = None,
+        max_value: Optional[NUM] = None,
+        *args,
+        **kwargs,
     ) -> None:
-        self.min_value = min_value
-        self.max_value = max_value
+        self.min_value = min_value if min_value else self.lower_limit
+        self.max_value = max_value if max_value else self.upper_limit
 
-        super().__init__(
-            allow_dynamic=allow_dynamic,
-            allow_static=allow_static,
-            is_static=is_static,
-            value=value,
-        )
+        super().__init__(*args, **kwargs)
+
+    def set_value(self, value: NUM) -> Result[None, str]:
+        if value < self.min_value:
+            return Err(f"Given value {value} is smaller than minimum {self.min_value}")
+        if value > self.max_value:
+            return Err(f"Given value {value} is larger than maximum {self.max_value}")
+        return super().set_value(value)
+
+    def is_compatible(self, other: DataContainer) -> bool:
+        if not super().is_compatible(other):
+            return False
+        if other.min_value < self.min_value:
+            return False
+        if other.max_value > self.max_value:
+            return False
+        return True
+
+
+@typechecked
+class IntContainer(NumericContainer[int]):
+
+    type_identifier = NodeDataType.INT_TYPE
+    _type = int
+    _value = 0
+    lower_limit = -(2**63)
+    upper_limit = 2**63 - 1
 
     @classmethod
     def _dict_from_msg(cls, msg: NodeDataType) -> dict:
@@ -246,76 +293,20 @@ class IntContainer(DataContainer):
         config["max_value"] = msg.int_max_value
         return config
 
-    def set_value(self, value: int) -> Result[None, str]:
-        if self.min_value is not None:
-            if value < self.min_value:
-                return Err(
-                    f"Given value {value} is smaller than minimum {self.min_value}"
-                )
-        if self.max_value is not None:
-            if value > self.max_value:
-                return Err(
-                    f"Given value {value} is larger than maximum {self.max_value}"
-                )
-        return super().set_value(value)
-
-    def get_value(self) -> Result[int, None]:
-        return super().get_value()
-
-    def is_compatible(self, other: DataContainer) -> bool:
-        if not isinstance(other, self.__class__):
-            return False
-        if self.min_value is not None:
-            if other.min_value is None or other.min_value < self.min_value:
-                return False
-        if self.max_value is not None:
-            if other.max_value is None or other.max_value > self.max_value:
-                return False
-        return super().is_compatible(other)
-
-    def get_serialized_type(self) -> NodeDataType:
-        type_msg = super().get_serialized_type()
-        type_msg.int_min_value = (
-            self.min_value if self.min_value is not None else -(2**63)
-        )
-        type_msg.int_max_value = (
-            self.max_value if self.max_value is not None else 2**63 - 1
-        )
+    def serialize_type(self) -> NodeDataType:
+        type_msg = super().serialize_type()
+        type_msg.int_min_value = self.min_value
+        type_msg.int_max_value = self.max_value
         return type_msg
 
-    def get_serialized_value(self) -> str:
-        match self.get_value():
-            case Err(None):
-                return ""
-            case Ok(i):
-                return str(i)
 
-
-class FloatContainer(DataContainer):
+@typechecked
+class FloatContainer(NumericContainer[float]):
 
     type_identifier = NodeDataType.FLOAT_TYPE
-    _value: Optional[float]
-    min_value: Optional[float]
-    max_value: Optional[float]
-
-    def __init__(
-        self,
-        allow_dynamic: bool = True,
-        allow_static: bool = False,
-        is_static: bool | None = None,
-        value: Optional[float] = None,
-        min_value: Optional[float] = None,
-        max_value: Optional[float] = None,
-    ) -> None:
-        self.min_value = min_value
-        self.max_value = max_value
-
-        super().__init__(
-            allow_dynamic=allow_dynamic,
-            allow_static=allow_static,
-            is_static=is_static,
-            value=value,
-        )
+    _type = float
+    lower_limit = -1.7976931348623158e308
+    upper_limit = 1.7976931348623158e308
 
     @classmethod
     def _dict_from_msg(cls, msg: NodeDataType) -> dict:
@@ -324,47 +315,123 @@ class FloatContainer(DataContainer):
         config["max_value"] = msg.float_max_value
         return config
 
-    def set_value(self, value: float | int) -> Result[None, str]:
-        float_val = float(value)
-        if self.min_value is not None:
-            if float_val < self.min_value:
-                return Err(
-                    f"Given value {float_val} is smaller than minimum {self.min_value}"
-                )
-        if self.max_value is not None:
-            if float_val > self.max_value:
-                return Err(
-                    f"Given value {float_val} is larger than maximum {self.max_value}"
-                )
-        return super().set_value(float_val)
+    def set_value(self, value: float) -> Result[None, str]:
+        # Silently convert int to float
+        if isinstance(value, int):
+            value = float(value)
+        return super().set_value(value)
 
-    def get_value(self) -> Result[float, None]:
-        return super().get_value()
-
-    def is_compatible(self, other: DataContainer) -> bool:
-        if not isinstance(other, self.__class__):
-            return False
-        if self.min_value is not None:
-            if other.min_value is None or other.min_value < self.min_value:
-                return False
-        if self.max_value is not None:
-            if other.max_value is None or other.max_value > self.max_value:
-                return False
-        return super().is_compatible(other)
-
-    def get_serialized_type(self) -> NodeDataType:
-        type_msg = super().get_serialized_type()
-        type_msg.int_min_value = (
-            self.min_value if self.min_value is not None else -1.7976931348623158e308
-        )
-        type_msg.int_max_value = (
-            self.max_value if self.max_value is not None else 1.7976931348623158e308
-        )
+    def serialize_type(self) -> NodeDataType:
+        type_msg = super().serialize_type()
+        type_msg.float_min_value = self.min_value
+        type_msg.float_max_value = self.max_value
         return type_msg
 
-    def get_serialized_value(self) -> str:
+
+ITER = TypeVar("ITER", str, list, dict, bytes)
+
+
+@typechecked
+class IterableContainer(BuiltinContainer[ITER]):
+
+    max_length: int = 2**64 - 1
+    strict_length: bool = False
+
+    def __init__(
+        self,
+        max_length: Optional[int] = None,
+        strict_length: Optional[bool] = None,
+        *args,
+        **kwargs,
+    ) -> None:
+        if max_length is not None:
+            self.max_length = max_length
+        if strict_length is not None:
+            self.strict_length = strict_length
+
+        super().__init__(*args, **kwargs)
+
+    @classmethod
+    def _dict_from_msg(cls, msg: NodeDataType) -> dict:
+        config = super()._dict_from_msg(msg)
+        config["max_length"] = msg.max_length
+        config["strict_length"] = msg.strict_length
+        return config
+
+    def set_value(self, value: ITER) -> Result[None, str]:
+        if len(value) > self.max_length:
+            return Err(
+                f"Value {value} has more items than the limit of {self.max_length}"
+            )
+        if self.strict_length and len(value) < self.max_length:
+            return Err(
+                f"Value {value} has fewer items than the limit of {self.max_length}"
+            )
+        # Since (some) iterables are mutable, we copy them on assignment
+        return super().set_value(deepcopy(value))
+
+    def get_value(self) -> Result[ITER, None]:
+        match super().get_value():
+            case Err(None):
+                return Err(None)
+            case Ok(v):
+                # Since (some) iterables are mutable, we copy them on fetch
+                return Ok(deepcopy(v))
+
+    def is_compatible(self, other: DataContainer) -> bool:
+        if not super().is_compatible(other):
+            return False
+        if other.max_length > self.max_length:
+            return False
+        if not other.strict_length and self.strict_length:
+            return False
+        return True
+
+    def serialize_type(self) -> NodeDataType:
+        type_msg = super().serialize_type()
+        type_msg.max_length = self.max_length
+        type_msg.strict_length = self.strict_length
+        return type_msg
+
+
+class StringContainer(IterableContainer[str]):
+    type_identifier = NodeDataType.STRING_TYPE
+    _type = str
+    _value = ""
+
+
+class ListContainer(IterableContainer[list]):
+    type_identifier = NodeDataType.LIST_TYPE
+    _type = list
+    _value = []
+
+
+class DictContainer(IterableContainer[dict]):
+    type_identifier = NodeDataType.DICT_TYPE
+    _type = dict
+    _value = {}
+
+
+class BytesContainer(IterableContainer[bytes]):
+    type_identifier = NodeDataType.BYTES_TYPE
+    _type = bytes
+    _value = b"\x00"
+
+    # The max_length default is set to one (strict), since bytes are mostly used
+    #   to fill byte fields in ROS messages, which only take one byte.
+    max_length = 1
+    strict_length = True
+
+    def serialize_value(self) -> str:
         match self.get_value():
             case Err(None):
                 return ""
-            case Ok(f):
-                return str(f)
+            case Ok(v):
+                return v.hex(" ")
+
+    def deserialize_value(self, ser_value: str) -> Result[None, str]:
+        try:
+            value = bytes.fromhex(ser_value)
+        except ValueError:
+            return Err(f"Given string {ser_value} isn't valid hexcode")
+        return self.set_value(value)

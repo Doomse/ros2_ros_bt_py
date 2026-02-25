@@ -29,6 +29,10 @@
 uint8 BOOL_TYPE=1
 uint8 INT_TYPE=2
 uint8 FLOAT_TYPE=3
+uint8 STRING_TYPE=4
+uint8 LIST_TYPE=5
+uint8 DICT_TYPE=6
+uint8 BYTES_TYPE=7
 
 # One of the constants given above
 uint8 type_identifier
@@ -42,6 +46,10 @@ int64 int_max_value
 
 float64 float_min_value
 float64 float_max_value
+
+uint64 max_length
+# If strict_length, the maximum has to be matched exactly
+bool strict_length
 
 # If this type references another IO field, this contains the key for that field
 string reference_target
