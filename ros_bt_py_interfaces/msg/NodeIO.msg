@@ -28,4 +28,3 @@
 
 string key
 NodeDataType type
-string serialized_value

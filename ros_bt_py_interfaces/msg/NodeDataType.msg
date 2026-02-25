@@ -33,6 +33,8 @@ uint8 STRING_TYPE=4
 uint8 LIST_TYPE=5
 uint8 DICT_TYPE=6
 uint8 BYTES_TYPE=7
+uint8 BUILTIN_TYPE=8
+uint8 REFERENCE_TYPE=9
 
 # One of the constants given above
 uint8 type_identifier
@@ -40,6 +42,9 @@ uint8 type_identifier
 bool allow_dynamic
 bool allow_static
 bool is_static
+
+string serialized_value
+string[] value_options
 
 int64 int_min_value
 int64 int_max_value
