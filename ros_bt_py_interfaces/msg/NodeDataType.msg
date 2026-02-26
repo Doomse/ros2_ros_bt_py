@@ -35,6 +35,9 @@ uint8 DICT_TYPE=6
 uint8 BYTES_TYPE=7
 uint8 BUILTIN_TYPE=8
 uint8 REFERENCE_TYPE=9
+uint8 ROS_INTERFACE_NAME=10
+uint8 ROS_INTERFACE_TYPE=11
+uint8 ROS_INTERFACE_VALUE=12
 
 # One of the constants given above
 uint8 type_identifier
@@ -58,6 +61,13 @@ bool strict_length
 
 # If this type references another IO field, this contains the key for that field
 string reference_target
+
+uint8 ROS_TOPIC=1
+uint8 ROS_SERVICE=2
+uint8 ROS_ACTION=3
+uint8 ROS_COMPONENT=4
+
+uint8 ros_interface_kind
 
 # Can be used to tie multiple fields together, e.g. a Topic name its type
 uint8 interface_id
