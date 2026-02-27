@@ -32,7 +32,7 @@ from inspect import getmodule
 import json
 import re
 from types import NoneType
-from typing import Any, Callable, Generic, Optional, Self, Type, TypeGuard, TypeVar
+from typing import Any, Generic, Optional, Self, Type, TypeGuard, TypeVar
 from typeguard import typechecked
 
 import rosidl_runtime_py
@@ -139,7 +139,7 @@ class DataContainer(abc.ABC, Generic[ANY]):
         Subclasses should validate and clean incoming values
             before calling `super().set_value` to assign them.
         """
-        if self.is_static and self._value is not None:
+        if self.is_static and self._updated:
             return Err("Static value was already asssigned")
         self._value = value
         self._updated = True
@@ -207,7 +207,29 @@ class DataContainer(abc.ABC, Generic[ANY]):
         raise NotImplementedError("Can't deserialize a base class value")
 
 
-class TypeContainerMixin(abc.ABC):
+# The inheritence here is only pro-forma to typecheck the constructor.
+#   It is recommended that implementations specify a container explicitly
+#   E.g. `class ValueType[V](TypeContainerMixin, DataContainer[V])`
+class TypeContainerMixin(DataContainer[type]):
+
+    # Update the defaults and verify that a type container doesn't allow dynamic values
+    def __init__(
+        self,
+        allow_dynamic=False,
+        allow_static=True,
+        *args,
+        **kwargs,
+    ) -> None:
+        if allow_dynamic:
+            raise RuntimeError(
+                "Type containers cannot be dynamic, since they're (potentially) reference targets."
+            )
+        super().__init__(
+            allow_dynamic=allow_dynamic,
+            allow_static=allow_static,
+            *args,
+            **kwargs,
+        )
 
     @abc.abstractmethod
     def get_value_field(self) -> Result[Type[DataContainer], None]:
@@ -334,20 +356,6 @@ BUILTIN = TypeVar("BUILTIN", bool, int, float, str, list, dict, bytes)
 class BuiltinContainer(DataContainer[BUILTIN]):
     _type: Type[BUILTIN]
     _value: BUILTIN
-
-    def __init__(
-        self,
-        allow_dynamic: bool = True,
-        allow_static: bool = False,
-        is_static: bool | None = None,
-        value: Optional[BUILTIN] = None,
-    ) -> None:
-        super().__init__(
-            allow_dynamic=allow_dynamic,
-            allow_static=allow_static,
-            is_static=is_static,
-            value=value,
-        )
 
     def set_value(self, value: BUILTIN) -> Result[None, str]:
         if not isinstance(value, self._type):
@@ -536,6 +544,19 @@ class StringType(IterableContainer[str]):
     type_identifier = NodeDataType.STRING_TYPE
     _type = str
     _value = ""
+
+
+class PathType(IterableContainer[str]):
+    type_identifier = NodeDataType.PATH_TYPE
+    _type = str
+    _value = ""
+
+    def set_value(self, value: str) -> Result[None, str]:
+        if not value.startswith("file://") and not value.startswith("package://"):
+            return Err(f"Value {value} is not a valid file or package uri")
+        return super().set_value(value)
+
+    # TODO Maybe get_value should already parse the uri into a full path?
 
 
 class ListType(IterableContainer[list]):
@@ -790,10 +811,29 @@ def get_ros_msg_type(msg_type: type) -> Result[type[RosMsgContainer], str]:
 @typechecked
 class RosTypeContainer(RosContainer[type]):
     type_identifier = NodeDataType.ROS_INTERFACE_TYPE
-    validate: Callable[[type], bool]
+
+    # Adapt defaults to common use case of type specification (static only)
+    def __init__(
+        self,
+        allow_dynamic=False,
+        allow_static=True,
+        *args,
+        **kwargs,
+    ) -> None:
+        super().__init__(
+            allow_dynamic=allow_dynamic,
+            allow_static=allow_static,
+            *args,
+            **kwargs,
+        )
+
+    @staticmethod
+    @abc.abstractmethod
+    def _validate(value: type) -> bool:
+        raise NotImplementedError("Can't validate on a base class")
 
     def set_value(self, value: type) -> Result[None, str]:
-        if not self.validate(value):
+        if not self._validate(value):
             return Err(f"Value {value} is not a matching ROS type")
         return super().set_value(value)
 
@@ -813,7 +853,7 @@ class RosTypeContainer(RosContainer[type]):
         return self.set_value(msg)
 
 
-class RosTopicType(RosTypeContainer, TypeContainerMixin):
+class RosTopicType(TypeContainerMixin, RosTypeContainer):
     """
     Note that this validation also accepts component messages like `_Request` or `_Goal`,
     since they're fully fledged message classes.
@@ -821,8 +861,11 @@ class RosTopicType(RosTypeContainer, TypeContainerMixin):
     """
 
     interface_kind = NodeDataType.ROS_TOPIC
-    validate = rosidl_runtime_py.utilities.is_message
     _value = msg.Empty
+
+    @staticmethod
+    def _validate(value: Type) -> bool:
+        return rosidl_runtime_py.utilities.is_message(value)
 
     def get_value_field(self) -> Result[type[DataContainer], None]:
         match self.get_value():
@@ -839,14 +882,20 @@ class RosTopicType(RosTypeContainer, TypeContainerMixin):
 
 class RosServiceType(RosTypeContainer):
     interface_kind = NodeDataType.ROS_SERVICE
-    validate = rosidl_runtime_py.utilities.is_service
     _value = srv.Trigger
+
+    @staticmethod
+    def _validate(value: Type) -> bool:
+        return rosidl_runtime_py.utilities.is_service(value)
 
 
 class RosActionType(RosTypeContainer):
     interface_kind = NodeDataType.ROS_ACTION
-    validate = rosidl_runtime_py.utilities.is_action
     _value = action.Fibonacci
+
+    @staticmethod
+    def _validate(value: Type) -> bool:
+        return rosidl_runtime_py.utilities.is_action(value)
 
 
 class RosComponentType(RosTypeContainer):
@@ -858,5 +907,8 @@ class RosComponentType(RosTypeContainer):
     """
 
     interface_kind = NodeDataType.ROS_COMPONENT
-    validate = rosidl_runtime_py.utilities.is_message
     _value = msg.Empty
+
+    @staticmethod
+    def _validate(value: Type) -> bool:
+        return rosidl_runtime_py.utilities.is_message(value)
