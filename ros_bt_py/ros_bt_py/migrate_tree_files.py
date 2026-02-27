@@ -354,6 +354,14 @@ def migrate_tree_file(file: str) -> Result[str, str]:
     new_file = f"{name}_new{ext}"
     counter = 1
     while os.path.exists(new_file):
+        # If one of the existing files is on the current version, just use that one.
+        with open(new_file, "r") as n_f:
+            new_tree_dict: dict = yaml.safe_load(n_f.read())
+        new_tree_version = Version(new_tree_dict.get("version", "0.0.0"))
+        if new_tree_version >= Version(metadata.version("ros_bt_py")):
+            # File up to date, nothing to do
+            return Ok(new_file)
+
         new_file = f"{name}_new_{counter}{ext}"
         counter += 1
 
