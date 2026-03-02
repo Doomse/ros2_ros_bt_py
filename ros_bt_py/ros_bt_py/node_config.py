@@ -25,69 +25,35 @@
 # CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
-from typing import Any, Dict, Optional, List
+from typing import Dict, Optional, List
+
 from ros_bt_py.vendor.result import Result, Err, Ok
 
+from ros_bt_py.data_types import DataContainer
 from ros_bt_py.exceptions import NodeConfigError
-
-
-class OptionRef(object):
-    """
-    Mark an input or output type as dependent on an option value.
-
-    Can be used instead of an actual type in the maps passed to a
-    :class:NodeConfig
-    """
-
-    def __init__(self, option_key: str):
-        self.option_key = option_key
-
-    def __repr__(self) -> str:
-        return f"OptionRef(option_key={self.option_key!r})"
-
-    def __eq__(self, other: Any) -> bool:
-        if not isinstance(other, OptionRef):
-            return False
-        return self.option_key == other.option_key
-
-    def __ne__(self, other: Any) -> bool:
-        return not self == other
-
-    def __name__(self) -> str:
-        return f"OptionRef(option_key={self.option_key!r})"
 
 
 class NodeConfig(object):
     def __init__(
         self,
-        options: Dict[str, Any],
-        inputs: Dict[str, Any],
-        outputs: Dict[str, Any],
+        inputs: Dict[str, DataContainer],
+        outputs: Dict[str, DataContainer],
         max_children: Optional[int],
-        optional_options: Optional[List[str]] = None,
         version: str = "",
         tags: Optional[List[str]] = None,
     ):
         """
         Describe the interface of a :class:ros_bt_py.node.Node .
 
-        :type options Dict[str, type]
-        :param options
-
-        Map from option names to their types. Note that unlike `inputs`
-        and `outputs`, option types can **not** use :class:OptionRef !
-
-        :type inputs Dict[str, type]
+        :type inputs Dict[str, DataContainer]
         :param inputs:
 
-        Map from input names to their types, or an :class:OptionRef
-        object that points to the option key to take the type from.
+        Map from input names to their data types.
 
-        :type outputs Dict[str, type]
+        :type outputs Dict[str, DataContainer]
         :param outputs:
 
-        Map from output names to their types, or an :class:OptionRef
-        object that points to the option key to take the type from.
+        Map from output names to their data types.
 
         :type max_children: int or None
         :param max_children:
@@ -98,12 +64,7 @@ class NodeConfig(object):
         """
         self.inputs = inputs
         self.outputs = outputs
-        self.options = options
         self.max_children = max_children
-
-        if optional_options is None:
-            optional_options = []
-        self.optional_options = optional_options
         self.version = version
 
         if tags is None:
@@ -115,9 +76,7 @@ class NodeConfig(object):
             "NodeConfig("
             f"inputs={self.inputs}, "
             f"outputs={self.outputs}, "
-            f"options={self.options}, "
             f"max_children={self.max_children}, "
-            f"optional_options={self.optional_options}, "
             f"version={self.version})"
         )
 
@@ -125,9 +84,7 @@ class NodeConfig(object):
         return (
             self.inputs == other.inputs
             and self.outputs == other.outputs
-            and self.options == other.options
             and self.max_children == other.max_children
-            and self.optional_options == other.optional_options
             and self.version == other.version
         )
 
@@ -161,28 +118,14 @@ class NodeConfig(object):
                 duplicate_outputs.append(key)
                 continue
             self.outputs[key] = other.outputs[key]
-        duplicate_options = []
-        for key in other.options:
-            if key in self.options:
-                duplicate_options.append(key)
-                continue
-            self.options[key] = other.options[key]
 
-        for optional_option in other.optional_options:
-            if optional_option in self.optional_options:
-                continue
-            else:
-                self.optional_options.append(optional_option)
-
-        if duplicate_inputs or duplicate_outputs or duplicate_options:
+        if duplicate_inputs or duplicate_outputs:
             msg = "Duplicate keys: "
             keys_strings = []
             if duplicate_inputs:
                 keys_strings.append(f"inputs: {str(duplicate_inputs)}")
             if duplicate_outputs:
                 keys_strings.append(f"outputs: {str(duplicate_outputs)}")
-            if duplicate_options:
-                keys_strings.append(f"options: {str(duplicate_options)}")
             msg += ", ".join(keys_strings)
             return Err(NodeConfigError(msg))
         return Ok(None)

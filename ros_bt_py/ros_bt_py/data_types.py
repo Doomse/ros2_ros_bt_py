@@ -32,7 +32,7 @@ from inspect import getmodule
 import json
 import re
 from types import NoneType
-from typing import Any, Generic, Optional, Self, Type, TypeGuard, TypeVar
+from typing import Any, Generic, Optional, Self, TypeGuard, TypeVar
 from typeguard import typechecked
 
 import rosidl_runtime_py
@@ -162,7 +162,7 @@ class DataContainer(Generic[ANY], abc.ABC):
         self._updated = False
 
     @abc.abstractmethod
-    def is_compatible(self, other: "DataContainer") -> TypeGuard[Type[Self]]:
+    def is_compatible(self, other: "DataContainer") -> TypeGuard[Self]:
         """
         Check if the given container is compatible with this one,
             meaning that its constraints are at least as narrow as the ones in `self`.
@@ -279,7 +279,7 @@ class TypeContainerMixin(DataContainer[type]):
         )
 
     @abc.abstractmethod
-    def get_value_field(self) -> Result[Type[DataContainer], None]:
+    def get_value_field(self) -> Result[type[DataContainer], None]:
         raise NotImplementedError("Can't get value field for base class")
 
 
@@ -376,7 +376,7 @@ class ReferenceType(DataContainer[Any]):
             return None
         return self._inner_type.reset_updated()
 
-    def is_compatible(self, other: DataContainer) -> TypeGuard[Type[Self]]:
+    def is_compatible(self, other: DataContainer) -> TypeGuard[Self]:
         if not super().is_compatible(other):
             return False
         return self._reference == other._reference
@@ -406,7 +406,7 @@ BUILTIN = TypeVar("BUILTIN", bool, int, float, str, list, dict, bytes)
 
 
 class BuiltinContainer(DataContainer[BUILTIN]):
-    _type: Type[BUILTIN]
+    _type: type[BUILTIN]
     _value: BUILTIN
 
     def set_value(self, value: BUILTIN) -> Result[None, str]:
@@ -440,7 +440,7 @@ class BoolType(BuiltinContainer[bool]):
         # Nothing to add for bool
         return super()._dict_from_msg(msg)
 
-    def is_compatible(self, other: DataContainer) -> TypeGuard[type[Self]]:
+    def is_compatible(self, other: DataContainer) -> TypeGuard[Self]:
         # Nothing to add for bool
         return super().is_compatible(other)
 
@@ -477,7 +477,7 @@ class NumericContainer(BuiltinContainer[NUM]):
             return Err(f"Given value {value} is larger than maximum {self.max_value}")
         return super().set_value(value)
 
-    def is_compatible(self, other: DataContainer) -> TypeGuard[Type[Self]]:
+    def is_compatible(self, other: DataContainer) -> TypeGuard[Self]:
         if not super().is_compatible(other):
             return False
         if other.min_value < self.min_value:
@@ -594,7 +594,7 @@ class IterableContainer(BuiltinContainer[ITER]):
                 # Since (some) iterables are mutable, we copy them on fetch
                 return Ok(deepcopy(v))
 
-    def is_compatible(self, other: DataContainer) -> TypeGuard[Type[Self]]:
+    def is_compatible(self, other: DataContainer) -> TypeGuard[Self]:
         if not super().is_compatible(other):
             return False
         if other.max_length > self.max_length:
@@ -690,7 +690,7 @@ class BytesType(IterableContainer[bytes]):
         return self.set_value(value)
 
 
-BUILTIN_TYPE_MAP: dict[type, Type[DataContainer]] = {
+BUILTIN_TYPE_MAP: dict[type, type[DataContainer]] = {
     bool: BoolType,
     int: IntType,
     float: FloatType,
@@ -760,7 +760,7 @@ class BuiltinType(TypeContainerMixin, DataContainer[type]):
             )
         return super().set_value(value)
 
-    def is_compatible(self, other: DataContainer) -> TypeGuard[Type[Self]]:
+    def is_compatible(self, other: DataContainer) -> TypeGuard[Self]:
         if not super().is_compatible(other):
             return False
         for type_elem in other.valid_types:
@@ -785,7 +785,7 @@ class BuiltinType(TypeContainerMixin, DataContainer[type]):
             case Ok(value):
                 return self.set_value(value)
 
-    def get_value_field(self) -> Result[Type[DataContainer], None]:
+    def get_value_field(self) -> Result[type[DataContainer], None]:
         match self.get_value():
             case Err(None):
                 return Err(None)
@@ -829,7 +829,7 @@ class RosContainer(DataContainer[ROS]):
             return Err("Wrong kind of ROS interface")
         return super().from_msg(msg)
 
-    def is_compatible(self, other: DataContainer) -> TypeGuard[type[Self]]:
+    def is_compatible(self, other: DataContainer) -> TypeGuard[Self]:
         if not super().is_compatible(other):
             return False
         return self.interface_id != other.interface_id
@@ -900,7 +900,7 @@ class RosMsgContainer(RosContainer[Any]):
             )
         return super().set_value(value)
 
-    def is_compatible(self, other: DataContainer) -> TypeGuard[type[Self]]:
+    def is_compatible(self, other: DataContainer) -> TypeGuard[Self]:
         if not super().is_compatible(other):
             return False
         # This is basically an == check, since ROS types don't have inheritance.
@@ -997,7 +997,7 @@ class RosTopicType(TypeContainerMixin, RosTypeContainer):
     _value = msg.Empty
 
     @staticmethod
-    def _validate(value: Type) -> bool:
+    def _validate(value: type) -> bool:
         return rosidl_runtime_py.utilities.is_message(value)
 
     def get_value_field(self) -> Result[type[DataContainer], None]:
@@ -1023,7 +1023,7 @@ class RosServiceType(RosTypeContainer):
     _value = srv.Trigger
 
     @staticmethod
-    def _validate(value: Type) -> bool:
+    def _validate(value: type) -> bool:
         return rosidl_runtime_py.utilities.is_service(value)
 
 
@@ -1037,7 +1037,7 @@ class RosActionType(RosTypeContainer):
     _value = action.Fibonacci
 
     @staticmethod
-    def _validate(value: Type) -> bool:
+    def _validate(value: type) -> bool:
         return rosidl_runtime_py.utilities.is_action(value)
 
 
@@ -1056,7 +1056,7 @@ class RosComponentType(RosTypeContainer):
     _value = msg.Empty
 
     @staticmethod
-    def _validate(value: Type) -> bool:
+    def _validate(value: type) -> bool:
         return rosidl_runtime_py.utilities.is_message(value)
 
 
