@@ -39,6 +39,7 @@ uint8 REFERENCE_TYPE=10
 uint8 ROS_INTERFACE_NAME=11
 uint8 ROS_INTERFACE_TYPE=12
 uint8 ROS_INTERFACE_VALUE=13
+uint8 BUILTIN_OR_ROS_TYPE=14
 
 # One of the constants given above
 uint8 type_identifier

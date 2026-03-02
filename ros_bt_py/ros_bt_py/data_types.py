@@ -45,13 +45,17 @@ from ros_bt_py_interfaces.msg import NodeDataType
 from example_interfaces import msg, srv, action
 
 
+# NOTE We don't specify the `typeguard` decorators on our classes,
+#   because they mess with the abstract class hierarchy and classmethod decorators.
+# You can use the import hook to add runtime type checking instead.
+
+
 ANY = TypeVar("ANY")
 
 
-@typechecked
-class DataContainer(abc.ABC, Generic[ANY]):
+class DataContainer(Generic[ANY], abc.ABC):
     # This type_identifier has to be assigned a value in subclass definitions
-    #   and should ALWAYS be static (outside of `__init__`)
+    #   and should ALWAYS be static.
     type_identifier: int
 
     allow_dynamic: bool
@@ -63,16 +67,14 @@ class DataContainer(abc.ABC, Generic[ANY]):
     def __init__(
         self,
         allow_dynamic: bool = True,
-        allow_static: bool = False,
+        allow_static: bool = True,
         is_static: bool | None = None,
         value: Optional[ANY] = None,
     ) -> None:
-        """
-        This method calls `set_value` with the given value,
-            so subclasses need to ensure that method is functional
-            before calling `super().__init__`.
-        This also raises `ValueError` if the given value can't be assigned
-        """
+        # This method calls `set_value` with the given value,
+        #   so subclasses need to ensure that method is functional
+        #   before calling `super().__init__`.
+        # This also raises `ValueError` if the given value can't be assigned
         super().__init__()
 
         if not hasattr(self, "type_identifier"):
@@ -207,6 +209,51 @@ class DataContainer(abc.ABC, Generic[ANY]):
         raise NotImplementedError("Can't deserialize a base class value")
 
 
+# This list gets populated through the `register_io_type` decorator,
+#   and is used to identify the type of any `NodeDataType` message.
+CONCRETE_IO_TYPES: list[type[DataContainer]] = []
+
+
+CONTAINER = TypeVar("CONTAINER", bound=DataContainer)
+
+
+def register_io_type(cls: type[CONTAINER]) -> type[CONTAINER]:
+    """
+    This decorator is only relevant for discovery from `NodeDataType`
+    """
+    CONCRETE_IO_TYPES.append(cls)
+    return cls
+
+
+@typechecked
+def get_iotype_for_msg(msg: NodeDataType) -> Result[DataContainer, str]:
+    for io_type in CONCRETE_IO_TYPES:
+        match io_type.from_msg(msg):
+            case Err(_):
+                continue  # Try all io types
+            case Ok(io):
+                return Ok(io)
+    return Err("There is no IO type matching this identifier.")
+
+
+@typechecked
+def get_iotype_for_type(type_: type) -> Result[type[DataContainer], str]:
+    """
+    Get the IO type corresponding to the given type,
+    which has to either be one of the types in `BUILTIN_TYPE_MAP` or a ROS message type.
+    """
+    if rosidl_runtime_py.utilities.is_message(type_):
+        match get_ros_msg_type(type_):
+            case Err(e):
+                return Err(e)
+            case Ok(c):
+                return Ok(c)
+    container_type = BUILTIN_TYPE_MAP.get(type_)
+    if container_type is None:
+        return Err(f"There's no IO type associated with {type_}")
+    return Ok(container_type)
+
+
 # The inheritence here is only pro-forma to typecheck the constructor.
 #   It is recommended that implementations specify a container explicitly
 #   E.g. `class ValueType[V](TypeContainerMixin, DataContainer[V])`
@@ -236,8 +283,14 @@ class TypeContainerMixin(DataContainer[type]):
         raise NotImplementedError("Can't get value field for base class")
 
 
-@typechecked
+@register_io_type
 class ReferenceType(DataContainer[Any]):
+    """
+    This IO type holds a reference to another IO type that holds a
+    basic type as its value.
+    This type acts as an IO type for that basic type.
+    """
+
     type_identifier = NodeDataType.REFERENCE_TYPE
     _value: NoneType = None
     _reference: str
@@ -352,7 +405,6 @@ class ReferenceType(DataContainer[Any]):
 BUILTIN = TypeVar("BUILTIN", bool, int, float, str, list, dict, bytes)
 
 
-@typechecked
 class BuiltinContainer(DataContainer[BUILTIN]):
     _type: Type[BUILTIN]
     _value: BUILTIN
@@ -373,7 +425,12 @@ class BuiltinContainer(DataContainer[BUILTIN]):
         return self.set_value(value)
 
 
+@register_io_type
 class BoolType(BuiltinContainer[bool]):
+    """
+    This type holds a simple boolean value
+    """
+
     type_identifier = NodeDataType.BOOL_TYPE
     _type = bool
     _value = False
@@ -383,6 +440,10 @@ class BoolType(BuiltinContainer[bool]):
         # Nothing to add for bool
         return super()._dict_from_msg(msg)
 
+    def is_compatible(self, other: DataContainer) -> TypeGuard[type[Self]]:
+        # Nothing to add for bool
+        return super().is_compatible(other)
+
     def serialize_type(self) -> NodeDataType:
         # Nothing to add for bool
         return super().serialize_type()
@@ -391,7 +452,6 @@ class BoolType(BuiltinContainer[bool]):
 NUM = TypeVar("NUM", int, float)
 
 
-@typechecked
 class NumericContainer(BuiltinContainer[NUM]):
     min_value: NUM
     max_value: NUM
@@ -427,7 +487,13 @@ class NumericContainer(BuiltinContainer[NUM]):
         return True
 
 
+@register_io_type
 class IntType(NumericContainer[int]):
+    """
+    This type holds a (64-bit) integer,
+    which can optionally be constrained by upper and lower limits.
+    """
+
     type_identifier = NodeDataType.INT_TYPE
     _type = int
     _value = 0
@@ -448,8 +514,13 @@ class IntType(NumericContainer[int]):
         return type_msg
 
 
-@typechecked
+@register_io_type
 class FloatType(NumericContainer[float]):
+    """
+    This type holds a double,
+    which can optionally be constrained by upper and lower limits.
+    """
+
     type_identifier = NodeDataType.FLOAT_TYPE
     _type = float
     lower_limit = -1.7976931348623158e308
@@ -478,7 +549,6 @@ class FloatType(NumericContainer[float]):
 ITER = TypeVar("ITER", str, list, dict, bytes)
 
 
-@typechecked
 class IterableContainer(BuiltinContainer[ITER]):
     max_length: int = 2**64 - 1
     strict_length: bool = False
@@ -541,12 +611,21 @@ class IterableContainer(BuiltinContainer[ITER]):
 
 
 class StringType(IterableContainer[str]):
+    """
+    This type holds a string, which can optionally be limited by length.
+    """
+
     type_identifier = NodeDataType.STRING_TYPE
     _type = str
     _value = ""
 
 
+@register_io_type
 class PathType(IterableContainer[str]):
+    """
+    This type holds a path uri, which has to start with 'file://' or 'package://'
+    """
+
     type_identifier = NodeDataType.PATH_TYPE
     _type = str
     _value = ""
@@ -559,26 +638,44 @@ class PathType(IterableContainer[str]):
     # TODO Maybe get_value should already parse the uri into a full path?
 
 
+@register_io_type
 class ListType(IterableContainer[list]):
+    """
+    This type holds a list with arbitrary values,
+    which can optionally be constrained by length.
+    """
+
     type_identifier = NodeDataType.LIST_TYPE
     _type = list
     _value = []
 
 
+@register_io_type
 class DictType(IterableContainer[dict]):
+    """
+    This type holds a dictionary with arbitrary keys and values,
+    which can optionally be constrained by length.
+    """
+
     type_identifier = NodeDataType.DICT_TYPE
     _type = dict
     _value = {}
 
 
-@typechecked
+@register_io_type
 class BytesType(IterableContainer[bytes]):
+    """
+    This type holds a bytes object, which can optionally be constrained by length.
+    This length restriction is set to 1 (strict) by default,
+    since the bytes type is mostly used to fill 'byte' fields in ROS messages,
+    which only take one byte.
+    Bytes are serializes as hex strings.
+    """
+
     type_identifier = NodeDataType.BYTES_TYPE
     _type = bytes
     _value = b"\x00"
 
-    # The max_length default is set to one (strict), since bytes are mostly used
-    #   to fill byte fields in ROS messages, which only take one byte.
     max_length = 1
     strict_length = True
 
@@ -623,8 +720,13 @@ def deserialize_class(ser_cls: str) -> Result[type, str]:
     return Ok(cls)
 
 
-@typechecked
+@register_io_type
 class BuiltinType(TypeContainerMixin, DataContainer[type]):
+    """
+    This holds a builtin type from the `BUILTIN_TYPE_MAP` keys,
+    which can optionally be a constrained further by supplying a list of valid types.
+    """
+
     type_identifier = NodeDataType.BUILTIN_TYPE
     _value = int
     valid_types: list[type]
@@ -697,7 +799,6 @@ class BuiltinType(TypeContainerMixin, DataContainer[type]):
 ROS = TypeVar("ROS")
 
 
-@typechecked
 class RosContainer(DataContainer[ROS]):
     # This interface_kind has to be assigned a value in subclass definitions
     #   and should ONLY be a class attribute
@@ -728,6 +829,11 @@ class RosContainer(DataContainer[ROS]):
             return Err("Wrong kind of ROS interface")
         return super().from_msg(msg)
 
+    def is_compatible(self, other: DataContainer) -> TypeGuard[type[Self]]:
+        if not super().is_compatible(other):
+            return False
+        return self.interface_id != other.interface_id
+
     def serialize_type(self) -> NodeDataType:
         type_msg = super().serialize_type()
         type_msg.ros_interface_kind = self.interface_kind
@@ -739,15 +845,30 @@ class RosNameContainer(RosContainer[str], BuiltinContainer[str]):
     _value = "/foo"
 
 
+@register_io_type
 class RosTopicName(RosNameContainer):
+    """
+    Holds a ROS topic name as a string.
+    """
+
     interface_kind = NodeDataType.ROS_TOPIC
 
 
+@register_io_type
 class RosServiceName(RosNameContainer):
+    """
+    Holds a ROS service name as a string.
+    """
+
     interface_kind = NodeDataType.ROS_SERVICE
 
 
+@register_io_type
 class RosActionName(RosNameContainer):
+    """
+    Holds a ROS action name as a string.
+    """
+
     interface_kind = NodeDataType.ROS_ACTION
 
 
@@ -779,6 +900,13 @@ class RosMsgContainer(RosContainer[Any]):
             )
         return super().set_value(value)
 
+    def is_compatible(self, other: DataContainer) -> TypeGuard[type[Self]]:
+        if not super().is_compatible(other):
+            return False
+        # This is basically an == check, since ROS types don't have inheritance.
+        #   but we still use `issubclass` since it is a sufficient condition.
+        return issubclass(other.message_type, self.message_type)
+
     def _serialize_value(self, value: Any) -> str:
         return json.dumps(rosidl_runtime_py.message_to_ordereddict(value))
 
@@ -797,6 +925,9 @@ class RosMsgContainer(RosContainer[Any]):
 
 @typechecked
 def get_ros_msg_type(msg_type: type) -> Result[type[RosMsgContainer], str]:
+    """
+    Get an IO type class for a given ROS message type.
+    """
     if not rosidl_runtime_py.utilities.is_message(msg_type):
         return Err(f"Type {msg_type} is not a valid message type")
     return Ok(
@@ -808,7 +939,6 @@ def get_ros_msg_type(msg_type: type) -> Result[type[RosMsgContainer], str]:
     )
 
 
-@typechecked
 class RosTypeContainer(RosContainer[type]):
     type_identifier = NodeDataType.ROS_INTERFACE_TYPE
 
@@ -853,8 +983,11 @@ class RosTypeContainer(RosContainer[type]):
         return self.set_value(msg)
 
 
+@register_io_type
 class RosTopicType(TypeContainerMixin, RosTypeContainer):
     """
+    This type holds message types of ROS topics.
+
     Note that this validation also accepts component messages like `_Request` or `_Goal`,
     since they're fully fledged message classes.
     The interface type just indicates that we are not looking for those.
@@ -880,7 +1013,12 @@ class RosTopicType(TypeContainerMixin, RosTypeContainer):
                 return Ok(t)
 
 
+@register_io_type
 class RosServiceType(RosTypeContainer):
+    """
+    This type holds message types of ROS services.
+    """
+
     interface_kind = NodeDataType.ROS_SERVICE
     _value = srv.Trigger
 
@@ -889,7 +1027,12 @@ class RosServiceType(RosTypeContainer):
         return rosidl_runtime_py.utilities.is_service(value)
 
 
+@register_io_type
 class RosActionType(RosTypeContainer):
+    """
+    This type holds message types of ROS actions.
+    """
+
     interface_kind = NodeDataType.ROS_ACTION
     _value = action.Fibonacci
 
@@ -898,12 +1041,15 @@ class RosActionType(RosTypeContainer):
         return rosidl_runtime_py.utilities.is_action(value)
 
 
+@register_io_type
 class RosComponentType(RosTypeContainer):
     """
+    This type holds component message types.
+
     This behaves similar to `RosTopicType`,
     except that this is not a valid `ReferenceType` target.
     The interface type indicates that we also want to allow
-    "component interfaces" like `_Request` or `_Goal`.
+    interface components like `Service_Request` or `Action_Goal`.
     """
 
     interface_kind = NodeDataType.ROS_COMPONENT
@@ -912,3 +1058,46 @@ class RosComponentType(RosTypeContainer):
     @staticmethod
     def _validate(value: Type) -> bool:
         return rosidl_runtime_py.utilities.is_message(value)
+
+
+class BuiltinOrRosType(TypeContainerMixin, DataContainer[type]):
+    """
+    This acts as a placeholder for type fields that can be filled by both a
+    `BuiltinType` or a `RosTopicType`.
+    This is not a functional type, any provided values are discarded immediately.
+    Note that this doesn't support the restrictions that can be placed on `BuiltinType`.
+    It is expected that this is replaced with either of the above
+    when a node is fully configured.
+    """
+
+    type_identifier = NodeDataType.BUILTIN_OR_ROS_TYPE
+
+    @classmethod
+    def _dict_from_msg(cls, msg: NodeDataType) -> dict:
+        return {}
+
+    @classmethod
+    def from_msg(cls, msg: NodeDataType) -> Result[Self, str]:
+        return Err("Placeholder cannot be constructed from message")
+
+    def set_value(self, value: type) -> Result[None, str]:
+        return Err("Placeholder does not accept values")
+
+    def is_compatible(self, other: DataContainer) -> bool:
+        if isinstance(other, BuiltinType):
+            return True
+        if isinstance(other, RosTopicType):
+            return True
+        return False
+
+    def serialize_type(self) -> NodeDataType:
+        return super().serialize_type()
+
+    def _serialize_value(self, value: type) -> str:
+        return ""
+
+    def deserialize_value(self, ser_value: str) -> Result[None, str]:
+        return Err("Placeholder does not accept values")
+
+    def get_value_field(self) -> Result[type[DataContainer], None]:
+        return Err(None)
