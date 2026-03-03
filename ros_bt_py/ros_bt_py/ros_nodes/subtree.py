@@ -26,20 +26,22 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 """BT node to encapsulate a part of a tree in a reusable subtree."""
-from typing import List, Optional, Dict
+from typing import Optional
 
 from ros_bt_py.vendor.result import Result, Ok, Err
 import uuid
 
-from rclpy.node import Node
 
-from ros_bt_py.logging_manager import LoggingManager
-from ros_bt_py_interfaces.msg._node_structure import NodeStructure
-
-from ros_bt_py_interfaces.msg import UtilityBounds, TreeStructure, NodeDataLocation
+from ros_bt_py_interfaces.msg import (
+    UtilityBounds,
+    NodeStructure,
+    TreeStructure,
+    NodeDataLocation,
+)
 from ros_bt_py_interfaces.srv import LoadTree
 
-from ros_bt_py.debug_manager import DebugManager
+from ros_bt_py.data_flow_manager import DataFlowManager
+from ros_bt_py.logging_manager import LoggingManager
 from ros_bt_py.subtree_manager import SubtreeManager
 from ros_bt_py.exceptions import BehaviorTreeException
 from ros_bt_py.tree_exec_manager import TreeExecManager
@@ -99,7 +101,7 @@ class Subtree(Leaf):
         # since the subtree gets a prefix, we can just have it use the
         # parent debug manager TODO Is that still true?
         self.nested_subtree_manager = SubtreeManager()
-        self.subtree_logging_manager = (
+        subtree_logging_manager = (
             LoggingManager(
                 ros_node=self.ros_node,
                 publish_log_callback=self.logging_manager.publish_log_callback,
@@ -107,13 +109,18 @@ class Subtree(Leaf):
             if self.logging_manager is not None
             else None
         )
+        subtree_data_flow_manager = DataFlowManager(
+            incoming_data=self.inputs,
+            outgoing_data=self.outputs,
+        )
         self.manager = TreeExecManager(
             ros_node=self.ros_node,
             name=self.name,
             tree_id=self.tree_ref,
             debug_manager=self.debug_manager,
             subtree_manager=self.nested_subtree_manager,
-            logging_manager=self.subtree_logging_manager,
+            logging_manager=subtree_logging_manager,
+            data_flow_manager=subtree_data_flow_manager,
         )
 
         match self.load_subtree():

@@ -27,13 +27,17 @@
 # POSSIBILITY OF SUCH DAMAGE.
 from typing import Dict, Optional, List
 
+from typeguard import typechecked
+
 from ros_bt_py.vendor.result import Result, Err, Ok
 
 from ros_bt_py.data_types import DataContainer
 from ros_bt_py.exceptions import NodeConfigError
 
 
+@typechecked
 class NodeConfig(object):
+
     def __init__(
         self,
         inputs: Dict[str, DataContainer],
@@ -81,6 +85,8 @@ class NodeConfig(object):
         )
 
     def __eq__(self, other) -> bool:
+        if not isinstance(other, NodeConfig):
+            return False
         return (
             self.inputs == other.inputs
             and self.outputs == other.outputs

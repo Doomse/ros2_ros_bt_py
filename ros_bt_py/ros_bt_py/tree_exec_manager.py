@@ -73,6 +73,7 @@ from std_srvs.srv import SetBool
 
 import ament_index_python
 
+from ros_bt_py.data_flow_manager import DataFlowManager
 from ros_bt_py.debug_manager import DebugManager
 from ros_bt_py.subtree_manager import SubtreeManager
 from ros_bt_py.exceptions import (
@@ -233,6 +234,11 @@ class TreeExecManager:
     These methods are suited (intended, even) for use as ROS service handlers.
     """
 
+    logging_manager: LoggingManager
+    data_flow_manager: DataFlowManager
+    subtree_manager: SubtreeManager
+    debug_manager: DebugManager
+
     def __init__(
         self,
         ros_node: rclpy.node.Node,
@@ -242,6 +248,7 @@ class TreeExecManager:
         debug_manager: Optional[DebugManager] = None,
         subtree_manager: Optional[SubtreeManager] = None,
         logging_manager: Optional[LoggingManager] = None,
+        data_flow_manager: Optional[DataFlowManager] = None,
         tick_frequency_hz: float = 10.0,
         publish_tree_structure_callback: Optional[
             Callable[[TreeStructureList], None]
@@ -255,10 +262,9 @@ class TreeExecManager:
         self.ros_node = ros_node
 
         self._tree_structure = TreeStructure()
-        # These reassignments makes the typing happy,
+        # This reassignment makes the typing happy,
         #   because they ensure that `.append .extent .remove ...` exists
         self._tree_structure.data_wirings = []
-        self._tree_structure.public_node_data = []
 
         self._tree_state = TreeState()
 
@@ -269,11 +275,30 @@ class TreeExecManager:
         self.diagnostic_status = DiagnosticStatus()
         self.diagnostic_array.status = [self.diagnostic_status]
 
-        self.logging_manager: LoggingManager
         if logging_manager is None:
             self.logging_manager = LoggingManager(ros_node=self.ros_node)
         else:
             self.logging_manager = logging_manager
+
+        if data_flow_manager is None:
+            self.get_logger().info(
+                "Tree manager instantiated without explicit data flow manager "
+                "- building our own with default parameters",
+                internal=True,
+            )
+            self.data_flow_manager = DataFlowManager()
+        else:
+            self.data_flow_manager = data_flow_manager
+
+        if subtree_manager is None:
+            self.get_logger().info(
+                "Tree manager instantiated without explicit subtree manager "
+                "- building our own with default parameters",
+                internal=True,
+            )
+            self.subtree_manager = SubtreeManager()
+        else:
+            self.subtree_manager = subtree_manager
 
         self.publish_tree_structure = publish_tree_structure_callback
         if self.publish_tree_structure is None:
@@ -307,7 +332,6 @@ class TreeExecManager:
                 internal=True,
             )
 
-        self.debug_manager: DebugManager
         if debug_manager is None:
             self.get_logger().info(
                 "Tree manager instantiated without explicit debug manager "
@@ -317,17 +341,6 @@ class TreeExecManager:
             self.debug_manager = DebugManager(ros_node=self.ros_node)
         else:
             self.debug_manager = debug_manager
-
-        self.subtree_manager: SubtreeManager
-        if subtree_manager is None:
-            self.get_logger().info(
-                "Tree manager instantiated without explicit subtree manager "
-                "- building our own with default parameters",
-                internal=True,
-            )
-            self.subtree_manager = SubtreeManager()
-        else:
-            self.subtree_manager = subtree_manager
 
         self._tree_lock = Lock()
         # Initialized ROS messages and component managers, properties should be safe now
@@ -644,6 +657,13 @@ class TreeExecManager:
             if self.state == TreeState.STOP_REQUESTED:
                 break
 
+            match self.data_flow_manager.push_incoming_data():
+                case Err(e):
+                    self.get_logger().error(f"Pushing tree inputs failed: {e}")
+                    return Err(BehaviorTreeException(e))
+                case Ok(None):
+                    pass
+
             tick_result = root.tick()
 
             if tick_result.is_err():
@@ -730,7 +750,6 @@ class TreeExecManager:
             # These reassignments makes the typing happy,
             #   because they ensure that `.append .extent .remove ...` exists
             self._tree_structure.data_wirings = []
-            self._tree_structure.public_node_data = []
         self.subtree_manager.clear_subtrees()
         self.clear_diagnostics_name()
         response.success = True
@@ -800,15 +819,6 @@ class TreeExecManager:
 
         tree = load_response.tree
 
-        for public_datum in tree.public_node_data:
-            if public_datum.data_kind == NodeDataLocation.OPTION_DATA:
-                response.success = False
-                response.error_message = (
-                    "public_node_data: option values cannot be public!"
-                )
-
-                return response
-
         # Clear existing tree, then replace it with the message's contents
         self.clear(None, ClearTree.Response())
         # First just add all nodes to the tree, then restore tree structure
@@ -870,7 +880,8 @@ class TreeExecManager:
         # These reassignments makes the typing happy,
         #   because they ensure that `.append .extent .remove ...` exists
         self._tree_structure.data_wirings = updated_wirings
-        self._tree_structure.public_node_data = list(tree.public_node_data)
+        self._tree_structure.public_inputs = list(tree.public_inputs)
+        self._tree_structure.public_outputs = list(tree.public_outputs)
 
         self.rate = self.ros_node.create_rate(frequency=self.tick_frequency_hz)
 
@@ -1316,7 +1327,7 @@ class TreeExecManager:
             debug_manager=self.debug_manager,
             subtree_manager=self.subtree_manager,
             logging_manager=self.get_logger(),
-            permissive=permissive,
+            data_flow_manager=self.data_flow_manager,
         )
         if node_result.is_err():
             self.get_logger().error(
@@ -1374,7 +1385,8 @@ class TreeExecManager:
                 else:
                     subtree = get_subtree_msg_result.unwrap()[0]
                     self._tree_structure.nodes = subtree.nodes
-                    self._tree_structure.public_node_data = subtree.public_node_data
+                    self._tree_structure.public_inputs = subtree.public_inputs
+                    self._tree_structure.public_outputs = subtree.public_outputs
             else:
                 self._tree_structure.nodes = []
         else:

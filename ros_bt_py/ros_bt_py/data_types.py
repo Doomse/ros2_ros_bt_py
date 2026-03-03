@@ -35,6 +35,8 @@ from types import NoneType
 from typing import Any, Generic, Optional, Self, TypeGuard, TypeVar
 from typeguard import typechecked
 
+from ros_bt_py.ros_helpers import get_interface_name
+
 import rosidl_runtime_py
 import rosidl_runtime_py.utilities
 
@@ -149,17 +151,23 @@ class DataContainer(Generic[ANY], abc.ABC):
 
     def get_value(self) -> Result[ANY, None]:
         """
+        Returns an empty `Err` if the value is `None`.
+
         Subclasses should wrap this to include proper type constraints.
         """
         if self._value is None:
             return Err(None)
         return Ok(self._value)
 
+    def reset_value(self):
+        self._value = None
+
     def is_updated(self) -> bool:
         return self._updated
 
     def reset_updated(self) -> None:
-        self._updated = False
+        if not self.is_static:
+            self._updated = False
 
     @abc.abstractmethod
     def is_compatible(self, other: "DataContainer") -> TypeGuard[Self]:
@@ -906,6 +914,11 @@ class RosMsgContainer(RosContainer[Any]):
         # This is basically an == check, since ROS types don't have inheritance.
         #   but we still use `issubclass` since it is a sufficient condition.
         return issubclass(other.message_type, self.message_type)
+
+    def serialize_type(self) -> NodeDataType:
+        type_msg = super().serialize_type()
+        type_msg.ros_msg_type = get_interface_name(self.message_type)
+        return type_msg
 
     def _serialize_value(self, value: Any) -> str:
         return json.dumps(rosidl_runtime_py.message_to_ordereddict(value))

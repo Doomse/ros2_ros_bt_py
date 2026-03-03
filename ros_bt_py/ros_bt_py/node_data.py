@@ -52,7 +52,7 @@ from ros_bt_py_interfaces.msg._node_data_type import NodeDataType
 
 
 @typechecked
-class NodeDataMap(object):
+class NodeDataMap:
     """
     Custom container class that hides :meth:`NodeData.get` and :meth:`NodeData.set`.
 
@@ -65,8 +65,7 @@ class NodeDataMap(object):
 
     _map: dict[str, DataContainer]
 
-    def __init__(self, name="data"):
-        self.name = name
+    def __init__(self):
         self._map = {}
 
     def add(self, key: str, value: DataContainer) -> Result[None, str]:
@@ -101,13 +100,11 @@ class NodeDataMap(object):
             self._map[key].reset_updated()
 
     def get_serialized_value(self, key) -> Result[str, str]:
-        """Return the jsonpickle'd value of the NodeData object at `key`."""
         if key not in self._map:
             return Err(f"No member named {key}")
         return Ok(self._map[key].serialize_value())
 
     def get_serialized_type(self, key) -> Result[NodeDataType, str]:
-        """Return the jsonpickle'd type of the NodeData object at `key`."""
         if key not in self._map:
             return Err(f"No member named {key}")
         return Ok(self._map[key].serialize_type())
@@ -132,15 +129,12 @@ class NodeDataMap(object):
         return key in self._map
 
     def __eq__(self, other):
-        return (
-            self.name == other.name
-            and len(self) == len(other)
-            and all(key in other for key in self)
-            and all(other[key] == self[key] for key in self)
-        )
+        if not isinstance(other, NodeDataMap):
+            return False
+        return self._map == other._map
 
     def __ne__(self, other):
         return not self == other
 
     def __repr__(self):
-        return f"NodeDataMap(name={self.name!r}), data:{self._map!r}"
+        return f"NodeDataMap({self._map!r})"

@@ -71,5 +71,8 @@ uint8 ROS_COMPONENT=4
 
 uint8 ros_interface_kind
 
+# If this type holds a ROS message, this is set to its interface name (e.g. std_msg/msg/Int64)
+string ros_msg_type
+
 # Can be used to tie multiple fields together, e.g. a Topic name its type
 uint8 interface_id

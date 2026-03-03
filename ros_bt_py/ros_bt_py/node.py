@@ -31,6 +31,7 @@ from contextlib import contextmanager
 from copy import deepcopy
 import inspect
 from types import ModuleType
+from typeguard import typechecked
 
 from ros_bt_py.vendor.result import Err, Ok, Result
 
@@ -55,17 +56,16 @@ import rclpy
 import rclpy.logging
 from rclpy.node import Node as ROSNode
 
-from ros_bt_py_interfaces.msg import UtilityBounds
-from typeguard import typechecked
 from ros_bt_py_interfaces.msg import (
     NodeStructure,
     NodeState,
     NodeIO,
-    NodeDataLocation,
     Wiring,
     TreeStructure,
+    UtilityBounds,
 )
 
+from ros_bt_py.data_flow_manager import DataFlowManager
 from ros_bt_py.data_types import DataContainer, get_iotype_for_type, get_iotype_for_msg
 from ros_bt_py.debug_manager import DebugManager
 from ros_bt_py.subtree_manager import SubtreeManager
@@ -114,28 +114,6 @@ def _map_types_to_containers(
             case Ok(c):
                 output_dict[key] = c()
     return Ok(output_dict)
-
-
-@typechecked
-def _connect_wirings(
-    data_wirings: List[Wiring], type: str
-) -> Dict[uuid.UUID, List[str]]:
-    connected_wirings: Dict[uuid.UUID, List[str]] = {}
-    for wiring in data_wirings:
-        # Since this function is for internal use, we assume ids to be valid
-        source_id = ros_to_uuid(wiring.source.node_id).unwrap()
-        target_id = ros_to_uuid(wiring.target.node_id).unwrap()
-        if wiring.source.data_kind == type:
-            if source_id in connected_wirings:
-                connected_wirings[source_id].append(wiring.source.data_key)
-            else:
-                connected_wirings[source_id] = [wiring.source.data_key]
-        elif wiring.target.data_kind == type:
-            if target_id in connected_wirings:
-                connected_wirings[target_id].append(wiring.target.data_key)
-            else:
-                connected_wirings[target_id] = [wiring.target.data_key]
-    return connected_wirings
 
 
 class NodeMeta(abc.ABCMeta):
@@ -220,6 +198,7 @@ class Node(object, metaclass=NodeMeta):
     debug_manager: Optional[DebugManager]
     subtree_manager: Optional[SubtreeManager]
     logging_manager: Optional[LoggingManager]
+    data_flow_manager: Optional[DataFlowManager]
     _state: BTNodeState
 
     def __init__(
@@ -231,6 +210,7 @@ class Node(object, metaclass=NodeMeta):
         debug_manager: Optional[DebugManager] = None,
         subtree_manager: Optional[SubtreeManager] = None,
         logging_manager: Optional[LoggingManager] = None,
+        data_flow_manager: Optional[DataFlowManager] = None,
     ) -> None:
         """
         Prepare class members.
@@ -280,6 +260,7 @@ class Node(object, metaclass=NodeMeta):
         self.debug_manager = debug_manager
         self.subtree_manager = subtree_manager
         self.logging_manager = logging_manager
+        self.data_flow_manager = data_flow_manager
 
         if not self._node_config:
             raise NodeConfigError("Missing node_config, cannot initialize!")
@@ -335,6 +316,11 @@ class Node(object, metaclass=NodeMeta):
                     f" the defined template {self.node_config.inputs[key]}"
                 )
             self.node_config.inputs[key] = container
+
+        # Force all outputs to be dynamic-only
+        for container in self.node_config.outputs.values():
+            container.allow_static = False
+            container.is_static = False
 
         # Don't setup automatically - nodes should be available as pure data
         # containers before the user decides to call setup() themselves!
@@ -428,6 +414,11 @@ class Node(object, metaclass=NodeMeta):
                         f"but node {self.name} is in state {self.state}"
                     )
                 )
+
+            for container in self.outputs.values():
+                container.reset_value()
+                container.reset_updated()
+
             setup_result = self._do_setup()
             self._setup_called = True
 
@@ -473,7 +464,8 @@ class Node(object, metaclass=NodeMeta):
                 return Err(BehaviorTreeException("Trying to tick uninitialized node!"))
 
             # Outputs are updated in the tick. To catch that, we need to reset here.
-            self.outputs.reset_updated()
+            for container in self.outputs.values():
+                container.reset_updated()
 
             tick_result = self._do_tick()
             if tick_result.is_ok():
@@ -487,7 +479,8 @@ class Node(object, metaclass=NodeMeta):
             # child outputs (or even our own). If they are, update information
             # is lost, unless it is processed after all child ticks in the same
             # cycle!
-            self.inputs.reset_updated()
+            for container in self.inputs.values():
+                container.reset_updated()
 
             valid_state_result = self.check_if_in_invalid_state(
                 allowed_states=[
@@ -502,7 +495,13 @@ class Node(object, metaclass=NodeMeta):
             if valid_state_result.is_err():
                 return Err(valid_state_result.unwrap_err())
 
-            self._handle_outputs()
+            if self.data_flow_manager is not None:
+                match self.data_flow_manager.push_outputs(self.node_id):
+                    case Err(e):
+                        self.state = BTNodeState.BROKEN
+                        return Err(BehaviorTreeException(e))
+                    case Ok(None):
+                        pass
 
             return Ok(self.state)
 
@@ -570,7 +569,8 @@ class Node(object, metaclass=NodeMeta):
             if check_state_result.is_err():
                 return Err(check_state_result.unwrap_err())
 
-            self.outputs.reset_updated()
+            for container in self.outputs.values():
+                container.reset_updated()
             return Ok(self.state)
 
     @abc.abstractmethod
@@ -614,11 +614,12 @@ class Node(object, metaclass=NodeMeta):
             # Reset input/output reset state and set outputs to None
             # before calling _do_reset() - the node can overwrite the None
             # with more appropriate values if need be.
-            self.inputs.reset_updated()
+            for container in self.inputs.values():
+                container.reset_updated()
 
-            for output_key in self.outputs:
-                self.outputs[output_key] = None
-            self.outputs.reset_updated()
+            for container in self.outputs.values():
+                container.reset_value()
+                container.reset_updated()
 
             reset_result = self._do_reset()
             if reset_result.is_ok():
@@ -976,7 +977,7 @@ class Node(object, metaclass=NodeMeta):
         debug_manager: Optional[DebugManager] = None,
         subtree_manager: Optional[SubtreeManager] = None,
         logging_manager: Optional[LoggingManager] = None,
-        permissive: bool = False,
+        data_flow_manager: Optional[DataFlowManager] = None,
     ) -> Result["Node", BehaviorTreeException]:
         """
         Construct a Node from the given ROS message.
@@ -997,10 +998,6 @@ class Node(object, metaclass=NodeMeta):
         :param debug_manager:
 
         The debug manager to use for the newly instantiated node class.
-
-        :param permissive:
-
-        Enable permissive behavior.
 
         :returns:
 
@@ -1087,6 +1084,7 @@ class Node(object, metaclass=NodeMeta):
                 debug_manager=debug_manager,
                 subtree_manager=subtree_manager,
                 logging_manager=logging_manager,
+                data_flow_manager=data_flow_manager,
             )
         except BehaviorTreeException as ex:
             return Err(ex)
@@ -1142,10 +1140,9 @@ class Node(object, metaclass=NodeMeta):
             root_id=uuid_to_ros(self.node_id),
             nodes=[node.to_structure_msg() for node in self.get_children_recursive()],
         )
-        # These reassignments makes the typing happy,
+        # This reassignment makes the typing happy,
         #   because they ensure that `.append` exists
         subtree.data_wirings = []
-        subtree.public_node_data = []
 
         node_map: Dict[uuid.UUID, NodeStructure] = {
             # Since this is internal data, we assume ids to be safe
@@ -1168,10 +1165,8 @@ class Node(object, metaclass=NodeMeta):
                     )
                 # In the other cases, add that datum to public_node_data
                 elif source_node:
-                    subtree.public_node_data.append(sub.source)
                     outgoing_connections.append(sub)
                 elif target_node:
-                    subtree.public_node_data.append(sub.target)
                     incoming_connections.append(sub)
                 else:
                     return Err(
@@ -1184,45 +1179,15 @@ class Node(object, metaclass=NodeMeta):
             for wiring, _, _ in node.subscribers:
                 # Since this is internal data, we assume ids to be safe
                 if ros_to_uuid(wiring.target.node_id).unwrap() not in node_map:
-                    subtree.public_node_data.append(wiring.source)
                     outgoing_connections.append(wiring)
 
-        connected_inputs = _connect_wirings(
-            subtree.data_wirings, NodeDataLocation.INPUT_DATA
-        )
-        connected_outputs = _connect_wirings(
-            subtree.data_wirings, NodeDataLocation.OUTPUT_DATA
-        )
+        subtree.public_inputs = [
+            connection.target for connection in incoming_connections
+        ]
+        subtree.public_outputs = [
+            connection.source for connection in outgoing_connections
+        ]
 
-        for node in subtree.nodes:
-            # Since this is internal data, we assume ids to be safe
-            node_id = ros_to_uuid(node.node_id).unwrap()
-            for node_input in node.inputs:
-                if (
-                    node_id not in connected_inputs
-                    or node_input.key not in connected_inputs[node_id]
-                ):
-                    # Input is unconnected, list it as public
-                    subtree.public_node_data.append(
-                        NodeDataLocation(
-                            node_id=node.node_id,
-                            data_kind=NodeDataLocation.INPUT_DATA,
-                            data_key=node_input.key,
-                        )
-                    )
-            for node_output in node.outputs:
-                if (
-                    node_id not in connected_outputs
-                    or node_output.key not in connected_outputs[node_id]
-                ):
-                    # Input is unconnected, list it as public
-                    subtree.public_node_data.append(
-                        NodeDataLocation(
-                            node_id=node.node_id,
-                            data_kind=NodeDataLocation.OUTPUT_DATA,
-                            data_key=node_output.key,
-                        )
-                    )
         return Ok((subtree, incoming_connections, outgoing_connections))
 
     @typechecked
