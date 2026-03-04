@@ -171,10 +171,6 @@ class DataContainer(Generic[ANY], abc.ABC):
             allow_static=self.allow_static,
             is_static=self.is_static,
         )
-        # Only add a serialized value if this is a static field,
-        #   dynamic values are handled independently.
-        if self.is_static:
-            type_msg.serialized_value = self.serialize_value()
         return type_msg
 
     def get_runtime_type(self) -> Self:
@@ -253,6 +249,10 @@ def register_io_type(cls: type[CONTAINER]) -> type[CONTAINER]:
 
 @typechecked
 def get_iotype_for_msg(msg: NodeDataType) -> Result[DataContainer, str]:
+    """
+    Note that this only constructs the data type, you still have to call
+    `deserialize_value` if you want to parse the value that was passed in.
+    """
     for io_type in CONCRETE_IO_TYPES:
         match io_type.from_msg(msg):
             case Err(_):
@@ -873,6 +873,9 @@ class BuiltinType(TypeContainerMixin, DataContainer[type]):
         *args,
         **kwargs,
     ) -> None:
+        for type_ in valid_types:
+            if type_ not in BUILTIN_TYPE_MAP.keys():
+                raise RuntimeError(f"Type {type_} is not usable as an IO type")
         self.valid_types = valid_types
         super().__init__(*args, **kwargs)
 
@@ -884,7 +887,7 @@ class BuiltinType(TypeContainerMixin, DataContainer[type]):
             case Ok(c):
                 config = c
         valid_types: list[type] = []
-        for option in msg.value_options:
+        for option in msg.serialized_value_options:
             match deserialize_class(option):
                 case Err(_):
                     continue
@@ -910,9 +913,9 @@ class BuiltinType(TypeContainerMixin, DataContainer[type]):
 
     def serialize_type(self) -> NodeDataType:
         type_msg = super().serialize_type()
-        type_msg.value_options = []
+        type_msg.serialized_value_options = []
         for type_elem in self.valid_types:
-            type_msg.value_options.append(serialize_class(type_elem))
+            type_msg.serialized_value_options.append(serialize_class(type_elem))
         return type_msg
 
     def _serialize_value(self, value: type) -> str:
@@ -1287,29 +1290,9 @@ class ReferenceContainer(DataContainer[Any]):
         )
         return Ok(None)
 
-    def set_type_map(self, new_map: dict[str, DataContainer[Any]]):
+    def set_type_map(self, new_map: dict[str, DataContainer[Any]]) -> Result[None, str]:
         self._container_map = new_map
-        # Ignore errors on setting inner type, it does not HAVE to be set at this point
-        self._set_inner_type()
-
-    def inner_from_msg(self, msg: NodeDataType) -> Result[None, str]:
-        match self._set_inner_type():
-            case Err(e):
-                return Err(e)
-            case Ok(None):
-                pass
-        assert (
-            self._inner_type is not None
-        ), "We just assigned an inner type without issues"
-        inner_cls = self._inner_type.__class__
-        msg_copy = deepcopy(msg)
-        msg_copy.type_identifier = inner_cls.type_identifier
-        match inner_cls.from_msg(msg):
-            case Err(e):
-                return Err(e)
-            case Ok(t):
-                self._inner_type = t
-                return Ok(None)
+        return self._set_inner_type()
 
     @classmethod
     def _dict_from_msg(cls, msg: NodeDataType) -> Result[dict, str]:

@@ -66,7 +66,12 @@ from ros_bt_py_interfaces.msg import (
 )
 
 from ros_bt_py.data_flow_manager import DataFlowManager
-from ros_bt_py.data_types import DataContainer, get_iotype_for_type, get_iotype_for_msg
+from ros_bt_py.data_types import (
+    DataContainer,
+    ReferenceContainer,
+    get_iotype_for_type,
+    get_iotype_for_msg,
+)
 from ros_bt_py.debug_manager import DebugManager
 from ros_bt_py.subtree_manager import SubtreeManager
 from ros_bt_py.logging_manager import LoggingManager
@@ -266,7 +271,7 @@ class Node(object, metaclass=NodeMeta):
             raise NodeConfigError("Missing node_config, cannot initialize!")
 
         # Copy the class NodeConfig so we can mess with it
-        self.node_config = deepcopy(self._node_config)
+        self.node_config = self._node_config.copy()
 
         unset_inputs: dict[str, DataContainer] = {}
         for key, container in new_inputs.items():
@@ -317,10 +322,27 @@ class Node(object, metaclass=NodeMeta):
                 )
             self.node_config.inputs[key] = container
 
-        # Force all outputs to be dynamic-only
+        # Since we substituted some inputs with updated versions,
+        # we have to update all references that were copied from the base config.
+        # Do NOT update anything that was in `new_inputs` because that would overwrite values.
+        for key, container in self.node_config.inputs.items():
+            if key in new_inputs.keys():
+                continue
+            if not isinstance(container, ReferenceContainer):
+                continue
+            match container.set_type_map(self.node_config.inputs):
+                case Err(e):
+                    raise NodeConfigError(e)
+                case Ok(None):
+                    pass
         for container in self.node_config.outputs.values():
-            container.allow_static = False
-            container.is_static = False
+            if not isinstance(container, ReferenceContainer):
+                continue
+            match container.set_type_map(self.node_config.inputs):
+                case Err(e):
+                    raise NodeConfigError(e)
+                case Ok(None):
+                    pass
 
         # Don't setup automatically - nodes should be available as pure data
         # containers before the user decides to call setup() themselves!
@@ -1060,12 +1082,26 @@ class Node(object, metaclass=NodeMeta):
         node_class = candidates[0]
 
         new_inputs: dict[str, DataContainer] = {}
-        for key, type_msg in msg.inputs:
-            match get_iotype_for_msg(type_msg):
+        reference_values: dict[str, str] = {}
+        io_msg: NodeIO
+        for io_msg in msg.inputs:
+            match get_iotype_for_msg(io_msg.type):
                 case Err(e):
                     return Err(NodeConfigError(e))
-                case Ok(cont):
-                    new_inputs[key] = cont
+                case Ok(c):
+                    container = c
+            new_inputs[io_msg.key] = container
+            if isinstance(container, ReferenceContainer):
+                reference_values[io_msg.key] = io_msg.serialized_value
+            else:
+                container.deserialize_value(io_msg.serialized_value)
+        for key, value in reference_values.items():
+            container = new_inputs[key]
+            if not isinstance(container, ReferenceContainer):
+                # This should NEVER happen given how `reference_values` was built
+                continue
+            container.set_type_map(new_inputs)
+            container.deserialize_value(value)
 
         match ros_to_uuid(msg.node_id):
             case Err(e):
@@ -1217,13 +1253,19 @@ class Node(object, metaclass=NodeMeta):
                 NodeIO(
                     key=key,
                     type=self.inputs[key].serialize_type(),
+                    # Only add serialized values for static inputs
+                    serialized_value=(
+                        self.inputs[key].serialize_value()
+                        if self.inputs[key].is_static
+                        else ""
+                    ),
                 )
                 for key in self.inputs
             ],
             outputs=[
                 NodeIO(
                     key=key,
-                    serialized_type=self.outputs[key].serialize_type(),
+                    type=self.outputs[key].serialize_type(),
                 )
                 for key in self.outputs
             ],

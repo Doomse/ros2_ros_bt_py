@@ -57,7 +57,6 @@ from ros_bt_py.helpers import (
     json_decode,
 )
 from ros_bt_py.ros_helpers import ros_to_uuid, uuid_to_ros
-from ros_bt_py.node_config import OptionRef
 
 from rclpy_message_converter import message_converter
 
@@ -389,9 +388,15 @@ class TreeEditManager(TreeExecManager):
             )
         ]
 
-        self._tree_structure.public_node_data = [
+        self._tree_structure.public_inputs = [
             data
-            for data in self._tree_structure.public_node_data
+            for data in self._tree_structure.public_inputs
+            # Data coming from the internal state will have valid node ids
+            if ros_to_uuid(data.node_id).unwrap() not in removed_node_ids
+        ]
+        self._tree_structure.public_outputs = [
+            data
+            for data in self._tree_structure.public_outputs
             # Data coming from the internal state will have valid node ids
             if ros_to_uuid(data.node_id).unwrap() not in removed_node_ids
         ]
@@ -573,118 +578,18 @@ class TreeEditManager(TreeExecManager):
             return response
 
         node = self.nodes[node_id]
-        unknown_options = []
-        preliminary_incompatible_options = []
-
-        try:
-            deserialized_options: Dict[str, Any] = {}
-            for option in request.options:
-                deserialized_options[option.key] = json_decode(option.serialized_value)
-            # deserialized_options = {
-            #    (option.key, json_decode(option.serialized_value))
-            #    for option in request.options
-            # }
-        except ValueError as ex:
-            response.success = False
-            response.error_message = f"Failed to deserialize option value: {str(ex)}"
-            return response
-
-        # Find any options values that
-        # a) the node does not expect
-        # b) have the wrong type
-        for key, value in deserialized_options.items():
-            if key not in node.options:
-                unknown_options.append(key)
-                continue
-
-            required_type = node.options.get_type(key)
-            if not node.options.compatible(key, value):
-                preliminary_incompatible_options.append((key, required_type.__name__))
-
-        error_strings = []
-        if unknown_options:
-            error_strings.append(f"Unknown option keys: {str(unknown_options)}")
-
-        incompatible_options = []
-        if preliminary_incompatible_options:
-            # traditionally we would fail here, but re-check if the type of an option
-            # with a known option-wiring changed
-            # this could mean that the previously incompatible option is actually
-            # compatible with the new type!
-            for key, required_type_name in preliminary_incompatible_options:
-                incompatible = True
-                possible_optionref = node.__class__._node_config.options[key]
-
-                if isinstance(possible_optionref, OptionRef):
-                    other_type = deserialized_options[possible_optionref.option_key]
-                    our_type = type(deserialized_options[key])
-                    if other_type == our_type:
-                        incompatible = False
-                    elif inspect.isclass(other_type):
-                        deserialized_options[key] = (
-                            message_converter.convert_dictionary_to_ros_message(
-                                other_type, deserialized_options[key]
-                            )
-                        )
-                        incompatible = False
-                    else:
-                        # check if the types are str or unicode and treat them the same
-                        if (
-                            isinstance(deserialized_options[key], str)
-                            and other_type == str
-                        ):
-                            incompatible = False
-                        if (
-                            isinstance(deserialized_options[key], str)
-                            and other_type == str
-                        ):
-                            incompatible = False
-                if incompatible:
-                    incompatible_options.append((key, required_type_name))
-
-        if incompatible_options:
-            error_strings.append(
-                "Incompatible option keys:\n"
-                + "\n".join(
-                    [
-                        f"Key {key} has type {type(deserialized_options[key]).__name__}, "
-                        f"should be {required_type_name}"
-                        for key, required_type_name in incompatible_options
-                    ]
-                )
-            )
-        if error_strings:
-            response.success = False
-            response.error_message = "\n".join(error_strings)
-            return response
 
         # Because options are used at construction time, we need to
         # construct a new node with the new options.
 
         # First, we need to add the option values that didn't change
         # to our dict:
-        for key in node.options:
-            if key not in deserialized_options:
-                deserialized_options[key] = node.options[key]
 
         # Now we can construct the new node - no need to call setup,
         # since we're guaranteed to be in the edit state
         # (i.e. `root.setup()` will be called before anything that
         # needs the node to be set up)
-        try:
-            new_node = node.__class__(
-                node_id=node_id,
-                options=deserialized_options,
-                name=request.new_name if request.rename_node else node.name,
-                debug_manager=node.debug_manager,
-                subtree_manager=node.subtree_manager,
-                logging_manager=self.get_logger(),
-                ros_node=self.ros_node,
-            )
-        except BehaviorTreeException as exc:
-            response.success = False
-            response.error_message = str(exc)
-            return response
+        new_node = node
 
         # Use this request to unwire any data connections the existing
         # node has - if we didn't do this, the node wouldn't ever be
@@ -1149,67 +1054,20 @@ class TreeEditManager(TreeExecManager):
 
         successful_wirings = []
         for wiring in request.wirings:
-            match ros_to_uuid(wiring.target.node_id):
+            match self.validate_wiring(wiring):
                 case Err(e):
                     response.success = False
-                    response.error_message = e
-                    break
-                case Ok(n_id):
-                    target_node_id = n_id
-
-            target_node = root.find_node(target_node_id)
-            if not target_node:
-                response.success = False
-                response.error_message = f"Target node {target_node_id} does not exist"
-                break
-            wire_data_result = target_node.wire_data(wiring)
-            if wire_data_result.is_err():
-                if not request.ignore_failure:
-                    response.success = False
                     response.error_message = (
-                        f'Failed to execute wiring "{wiring}": '
-                        f"{str(wire_data_result.unwrap_err())}"
-                    )
-                    break
-            else:
-                successful_wirings.append(wiring)
-
-        if not response.success:
-            # Undo the successful wirings
-            for wiring in successful_wirings:
-                match ros_to_uuid(wiring.target.node_id):
-                    case Err(e):
-                        response.success = False
-                        response.error_message = e
-                        return response
-                    case Ok(n_id):
-                        target_node_id = n_id
-
-                target_node = root.find_node(target_node_id)
-                if not target_node:
-                    response.success = False
-                    response.error_message = (
-                        "Failed to find node target: " f"{target_node_id}"
+                        f'Failed to execute wiring "{wiring}": "{str(e)}'
                     )
                     return response
-                unwire_result = target_node.unwire_data(wiring)
-                if unwire_result.is_err():
-                    response.success = False
-                    response.error_message = (
-                        f'Failed to undo wiring "{wiring}": {str(unwire_result.unwrap_err())}\n'
-                        f"Previous error: {response.error_message}"
-                    )
-                    self.get_logger().error(
-                        "Failed to undo successful wiring after error. "
-                        "Tree is in undefined state!"
-                    )
-                    return response
-            return response
-        else:
-            # only actually wire any data if there were no errors
-            # We made it here, so all the Wirings should be valid. Time to save
-            # them.
-            cast(list, self._tree_structure.data_wirings).extend(successful_wirings)
+                case Ok(None):
+                    successful_wirings.append(wiring)
+
+        # only actually wire any data if there were no errors
+        # We made it here, so all the Wirings should be valid. Time to save
+        # them.
+        self.wirings.extend(successful_wirings)
         return response
 
     @is_edit_service
@@ -1244,67 +1102,16 @@ class TreeEditManager(TreeExecManager):
         response.success = True
         successful_unwirings = []
         for wiring in request.wirings:
-            match ros_to_uuid(wiring.target.node_id):
-                case Err(e):
-                    response.success = False
-                    response.error_message = e
-                    break
-                case Ok(n_id):
-                    target_node_id = n_id
-
-            target_node = root.find_node(target_node_id)
-            if not target_node:
-                response.success = False
-                response.error_message = f"Target node {target_node_id} does not exist"
-                break
-            unwire_result = target_node.unwire_data(wiring)
-            if unwire_result.is_err():
+            if wiring not in self.wirings:
                 response.success = False
                 response.error_message = (
-                    f'Failed to remove wiring "{wiring}": '
-                    f"{str(unwire_result.unwrap_err())}"
+                    f'Failed to remove wiring "{wiring}": This wiring does not exist'
                 )
-                break
+                return response
             successful_unwirings.append(wiring)
 
-        if not response.success:
-            # Re-Wire the successful unwirings
-            for wiring in successful_unwirings:
-                match ros_to_uuid(wiring.target.node_id):
-                    case Err(e):
-                        response.success = False
-                        response.error_message = e
-                        return response
-                    case Ok(n_id):
-                        target_node_id = n_id
-
-                target_node = root.find_node(target_node_id)
-                if not target_node:
-                    response.success = False
-                    response.error_message = (
-                        f"Failed to find node: {wiring.target.node_id}"
-                    )
-                    return response
-
-                wire_data_result = target_node.wire_data(wiring)
-                if wire_data_result.is_err():
-                    response.success = False
-                    response.error_message = (
-                        f'Failed to redo wiring "{wiring}": {str(wire_data_result.unwrap_err())}\n'
-                        f"Previous error: {response.error_message}"
-                    )
-                    self.get_logger().error(
-                        "Failed to rewire successful unwiring after error. "
-                        "Tree is in undefined state!"
-                    )
-                    return response
-            return response
-        else:
-            # We've removed these NodeDataWirings, so remove them from tree_msg as
-            # well.
-            for wiring in request.wirings:
-                if wiring in self._tree_structure.data_wirings:
-                    cast(list, self._tree_structure.data_wirings).remove(wiring)
+        for wiring in request.wirings:
+            self.wirings.remove(wiring)
         return response
 
     @typechecked

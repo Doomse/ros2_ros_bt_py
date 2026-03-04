@@ -57,8 +57,7 @@ bool allow_dynamic
 bool allow_static
 bool is_static
 
-string serialized_value
-string[] value_options
+string[] serialized_value_options
 
 int64 int_min_value
 int64 int_max_value

@@ -25,13 +25,16 @@
 # CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
+from copy import deepcopy
 from typing import Dict, Optional, List
 
 from typeguard import typechecked
 
+import itertools
+
 from ros_bt_py.vendor.result import Result, Err, Ok
 
-from ros_bt_py.data_types import DataContainer
+from ros_bt_py.data_types import DataContainer, TypeContainerMixin, ReferenceContainer
 from ros_bt_py.exceptions import NodeConfigError
 
 
@@ -74,6 +77,25 @@ class NodeConfig(object):
         if tags is None:
             tags = []
         self.tags = tags
+
+        # For convenience, all outputs are silently forced to be dynamic only
+        # If an output is an instance of `TypeContainerMixin`, raise `NodeConfigError`
+        for output in self.outputs.values():
+            if isinstance(output, TypeContainerMixin):
+                raise NodeConfigError("Cannot have a TypeContainer as an output")
+            output.allow_dynamic = True
+            output.allow_static = False
+            output.is_static = False
+
+        # Initialize all instances of `ReferenceContainer`
+        for io_item in itertools.chain(self.inputs.values(), self.outputs.values()):
+            if not isinstance(io_item, ReferenceContainer):
+                continue
+            match io_item.set_type_map(self.inputs):
+                case Err(e):
+                    raise NodeConfigError(e)
+                case Ok(None):
+                    pass
 
     def __repr__(self) -> str:
         return (
@@ -135,3 +157,15 @@ class NodeConfig(object):
             msg += ", ".join(keys_strings)
             return Err(NodeConfigError(msg))
         return Ok(None)
+
+    def copy(self) -> "NodeConfig":
+        """
+        Implement a custom copy operation that also updates all IO references.
+        """
+        return NodeConfig(
+            inputs=deepcopy(self.inputs),
+            outputs=deepcopy(self.outputs),
+            max_children=self.max_children,
+            version=self.version,
+            tags=self.tags,
+        )

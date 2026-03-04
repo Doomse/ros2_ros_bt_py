@@ -31,7 +31,7 @@ import uuid
 from functools import wraps
 from packaging.version import Version
 from threading import Thread, Lock, RLock
-from typing import Any, Callable, Dict, Optional, List
+from typing import Any, Callable, Dict, Optional, List, cast
 
 from ros_bt_py.vendor.result import Err, Ok, Result
 
@@ -449,6 +449,16 @@ class TreeExecManager:
                 frequency = 10.0
             self._tree_structure.tick_frequency_hz = frequency
 
+    @property
+    @typechecked
+    def wirings(self) -> list[Wiring]:
+        return cast(list, self._tree_structure.data_wirings)
+
+    @wirings.setter
+    @typechecked
+    def wirings(self, wirings: list[Wiring]) -> None:
+        self._tree_structure.data_wirings = wirings
+
     def get_logger(self) -> LoggingManager:
         return self.logging_manager
 
@@ -646,6 +656,9 @@ class TreeExecManager:
             )
 
         if root.state in (BTNodeState.UNINITIALIZED, BTNodeState.SHUTDOWN):
+            # TODO This is a very ugly position to put this,
+            #   we should restructure execution actions and commands.
+            self.data_flow_manager.initialize(self.nodes, self.wirings)
             root.setup()
             if root.state is not BTNodeState.IDLE:
                 self.state = TreeState.ERROR
@@ -857,15 +870,7 @@ class TreeExecManager:
         # All nodes are added, now do the wiring
         updated_wirings = []
         for wiring in tree.data_wirings:
-            match self.parse_wiring_from_msg(wiring):
-                case Err(e):
-                    response.success = False
-                    response.error_message = str(e)
-                    return response
-                case Ok((s, t)):
-                    _ = s
-                    target = t
-            match target.wire_data(wiring):
+            match self.validate_wiring(wiring):
                 case Err(e):
                     response.success = False
                     response.error_message = str(e)
@@ -1340,9 +1345,9 @@ class TreeExecManager:
 
         return Ok(node_instance)
 
-    def parse_wiring_from_msg(
+    def validate_wiring(
         self, wiring_msg: Wiring
-    ) -> Result[tuple[Node, Node], BehaviorTreeException]:
+    ) -> Result[None, BehaviorTreeException]:
         match ros_to_uuid(wiring_msg.source.node_id):
             case Err(e):
                 return Err(BehaviorTreeException(e))
@@ -1353,24 +1358,46 @@ class TreeExecManager:
                 return Err(BehaviorTreeException(e))
             case Ok(n_id):
                 target_node_id = n_id
-        if source_node_id not in self.nodes:
+        source_node = self.nodes.get(source_node_id)
+        if source_node is None:
             return Err(
                 BehaviorTreeException(
                     f"Source node ({source_node_id}) doesn't exist in tree"
                 )
             )
-        if target_node_id not in self.nodes:
+        target_node = self.nodes.get(target_node_id)
+        if target_node is None:
             return Err(
                 BehaviorTreeException(
                     f"Target node ({target_node_id}) doesn't exist in tree"
                 )
             )
-        return Ok(
-            (
-                self.nodes[source_node_id],
-                self.nodes[target_node_id],
+        source_container = source_node.outputs.get(wiring_msg.source.data_key)
+        if source_container is None:
+            return Err(
+                BehaviorTreeException(
+                    f"Source node ({source_node_id}) doesn't have "
+                    f"an output key {wiring_msg.source.data_key}"
+                )
             )
-        )
+        target_container = target_node.outputs.get(wiring_msg.target.data_key)
+        if target_container is None:
+            return Err(
+                BehaviorTreeException(
+                    f"Source node ({source_node_id}) doesn't have "
+                    f"an output key {wiring_msg.target.data_key}"
+                )
+            )
+        if not target_container.get_runtime_type().is_compatible(
+            source_container.get_runtime_type()
+        ):
+            return Err(
+                BehaviorTreeException(
+                    f"The IO types of source {source_container} "
+                    f"and target {target_container} are incompatible"
+                )
+            )
+        return Ok(None)
 
     def structure_to_msg(self) -> TreeStructure:
         root_result = self.find_root()
@@ -1406,6 +1433,6 @@ class TreeExecManager:
 
     def data_to_msg(self) -> TreeData:
         self._tree_data.wiring_data = []
-        for node in self.nodes.values():
-            self._tree_data.wiring_data.extend(node.wire_data_msg_list())
+        # for node in self.nodes.values():
+        # self._tree_data.wiring_data.extend(node.wire_data_msg_list())
         return self._tree_data
