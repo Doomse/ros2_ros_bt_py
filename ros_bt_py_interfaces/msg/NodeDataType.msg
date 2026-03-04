@@ -26,6 +26,7 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
+uint8 UNDEFINED_TYPE=0
 uint8 BOOL_TYPE=1
 uint8 INT_TYPE=2
 uint8 FLOAT_TYPE=3
@@ -35,14 +36,22 @@ uint8 DICT_TYPE=6
 uint8 BYTES_TYPE=7
 uint8 PATH_TYPE=8
 uint8 BUILTIN_TYPE=9
-uint8 REFERENCE_TYPE=10
-uint8 ROS_INTERFACE_NAME=11
-uint8 ROS_INTERFACE_TYPE=12
-uint8 ROS_INTERFACE_VALUE=13
-uint8 BUILTIN_OR_ROS_TYPE=14
+uint8 ROS_INTERFACE_NAME=10
+uint8 ROS_INTERFACE_TYPE=11
+uint8 ROS_INTERFACE_VALUE=12
+uint8 BUILTIN_OR_ROS_TYPE=13
+uint8 REFERENCE_TYPE=14
+uint8 REFERENCE_LIST_TYPE=15
+uint8 REFERENCE_DICT_TYPE=16
+
 
 # One of the constants given above
 uint8 type_identifier
+
+# If the current type has a specific value type,
+# its identifier is given here as one of the constants as above.
+# This is given as a list to enable nesting.
+uint8[] value_type_identifier
 
 bool allow_dynamic
 bool allow_static
@@ -57,9 +66,14 @@ int64 int_max_value
 float64 float_min_value
 float64 float_max_value
 
-uint64 max_length
+uint64 string_max_length
 # If strict_length, the maximum has to be matched exactly
-bool strict_length
+bool string_strict_length
+
+# Those are given as list to support nested structures
+uint64[] iterable_max_length
+# If strict_length, the maximum has to be matched exactly
+bool[] iterable_strict_length
 
 # If this type references another IO field, this contains the key for that field
 string reference_target
