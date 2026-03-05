@@ -27,17 +27,21 @@
 # POSSIBILITY OF SUCH DAMAGE.
 from ros_bt_py_interfaces.msg import UtilityBounds
 
+from ros_bt_py.data_types import StringType
 from ros_bt_py.exceptions import BehaviorTreeException
 from ros_bt_py.helpers import BTNodeState
 from ros_bt_py.node import FlowControl, define_bt_node
 from ros_bt_py.node_config import NodeConfig
 
-from ros_bt_py.vendor.result import Result, Ok, Err, is_err
+from ros_bt_py.vendor.result import Result, Ok, Err
 
 
 @define_bt_node(
     NodeConfig(
-        version="0.1.0", options={}, inputs={"name": str}, outputs={}, max_children=None
+        version="0.1.0",
+        inputs={"name": StringType()},
+        outputs={},
+        max_children=None,
     )
 )
 class NameSwitch(FlowControl):
@@ -52,7 +56,12 @@ class NameSwitch(FlowControl):
         return Ok(BTNodeState.IDLE)
 
     def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        name = self.inputs["name"]
+        match self.inputs["name"].get_value_as(str):
+            case Err(v):
+                self.logerr(f"Given value {v} is not a string")
+                return Ok(BTNodeState.FAILED)
+            case Ok(n):
+                name = n
         if name not in self.child_map:
             self.logwarn("Ticking without children. Is this really what you want?")
             return Ok(BTNodeState.FAILED)
@@ -101,9 +110,7 @@ class NameSwitch(FlowControl):
         return calculate_utility_fallback(self.children)
 
 
-@define_bt_node(
-    NodeConfig(version="0.1.0", options={}, inputs={}, outputs={}, max_children=None)
-)
+@define_bt_node(NodeConfig(version="0.1.0", inputs={}, outputs={}, max_children=None))
 class Fallback(FlowControl):
     """
     Flow control node that succeeds when any one of its children succeeds.
@@ -203,9 +210,7 @@ class Fallback(FlowControl):
         return calculate_utility_fallback(self.children)
 
 
-@define_bt_node(
-    NodeConfig(version="0.1.0", options={}, inputs={}, outputs={}, max_children=None)
-)
+@define_bt_node(NodeConfig(version="0.1.0", inputs={}, outputs={}, max_children=None))
 class MemoryFallback(FlowControl):
     """
     Flow control node that succeeds when any one of its children succeeds and has a memory.

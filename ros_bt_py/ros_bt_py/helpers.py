@@ -37,6 +37,8 @@ import re
 import uuid
 from collections import OrderedDict
 
+from ros_bt_py.exceptions import BehaviorTreeException
+from ros_bt_py.vendor.result import Err
 import rosidl_runtime_py.utilities
 
 from ros_bt_py_interfaces.msg import NodeState, CapabilityInterface
@@ -86,6 +88,15 @@ class MathOperandType(object):
 class MathUnaryOperandType(object):
     def __init__(self, operand_type="float"):
         self.operand_type = operand_type
+
+
+@typechecked
+def type_mismatch_error(
+    value: Any, type_: type, key: str
+) -> Err[BehaviorTreeException]:
+    return Err(
+        BehaviorTreeException(f"Value {value} at key {key} is not of type {type_}")
+    )
 
 
 # handling nested objects,
