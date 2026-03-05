@@ -47,11 +47,6 @@ from ros_bt_py_interfaces.msg import NodeDataType
 from example_interfaces import msg, srv, action
 
 
-# NOTE We don't specify the `typeguard` decorators on our classes,
-#   because they mess with the abstract class hierarchy and classmethod decorators.
-# You can use the import hook to add runtime type checking instead.
-
-
 ANY = TypeVar("ANY")
 
 
@@ -66,6 +61,7 @@ class DataContainer(Generic[ANY], abc.ABC):
     _value: Optional[ANY] = None
     _updated: bool
 
+    @typechecked
     def __init__(
         self,
         allow_dynamic: bool = True,
@@ -112,6 +108,7 @@ class DataContainer(Generic[ANY], abc.ABC):
 
     @classmethod
     @abc.abstractmethod
+    @typechecked
     def _dict_from_msg(cls, msg: NodeDataType) -> Result[dict, str]:
         """
         Subclasses should extend this to add their specific configs
@@ -126,6 +123,7 @@ class DataContainer(Generic[ANY], abc.ABC):
         )
 
     @classmethod
+    @typechecked
     def from_msg(cls, msg: NodeDataType) -> Result[Self, str]:
         """
         This does only set all type information, not the value.
@@ -143,6 +141,7 @@ class DataContainer(Generic[ANY], abc.ABC):
         return Ok(obj)
 
     @abc.abstractmethod
+    @typechecked
     def is_compatible(self, other: "DataContainer") -> TypeGuard[Self]:
         """
         Check if the given container is compatible with this one,
@@ -181,26 +180,39 @@ class DataContainer(Generic[ANY], abc.ABC):
         return self
 
     @abc.abstractmethod
+    @typechecked
     def set_value(self, value: ANY) -> Result[None, str]:
         """
         Subclasses should validate and clean incoming values
             before calling `super().set_value` to assign them.
         """
         if self.is_static and self._updated:
-            return Err("Static value was already asssigned")
+            return Err("Static value was already assigned")
         self._value = value
         self._updated = True
         return Ok(None)
 
+    @typechecked
     def get_value(self) -> Result[ANY, None]:
         """
         Returns an empty `Err` if the value is `None`.
-
-        Subclasses should wrap this to include proper type constraints.
         """
         if self._value is None:
             return Err(None)
         return Ok(self._value)
+
+    T = TypeVar("T")
+
+    @typechecked
+    def get_value_as(self, type_: type[T]) -> Result[T, Any]:
+        match self.get_value():
+            case Err(None):
+                return Err(None)
+            case Ok(v):
+                value = v
+        if isinstance(value, type_):
+            return Ok(value)
+        return Err(value)
 
     def reset_value(self):
         self._value = None
@@ -212,6 +224,7 @@ class DataContainer(Generic[ANY], abc.ABC):
         if not self.is_static:
             self._updated = False
 
+    @typechecked
     def serialize_value(self) -> str:
         match self.get_value():
             case Err(None):
@@ -237,6 +250,7 @@ CONCRETE_IO_TYPES: list[type[DataContainer]] = []
 CONTAINER = TypeVar("CONTAINER", bound=DataContainer)
 
 
+@typechecked
 def register_io_type(cls: type[CONTAINER]) -> type[CONTAINER]:
     """
     This decorator is only relevant for discovery from `NodeDataType`
@@ -286,6 +300,7 @@ def get_iotype_for_type(type_: type) -> Result[type[DataContainer], str]:
 class TypeContainerMixin(DataContainer[type]):
 
     # Update the defaults and verify that a type container doesn't allow dynamic values
+    @typechecked
     def __init__(
         self,
         allow_dynamic=False,
@@ -316,6 +331,7 @@ class BuiltinContainer(DataContainer[BUILTIN]):
     _type: type[BUILTIN]
     _value: BUILTIN
 
+    @typechecked
     def set_value(self, value: BUILTIN) -> Result[None, str]:
         if not isinstance(value, self._type):
             return Err(f"Given value {value} isn't of type {self._type}")
@@ -324,6 +340,7 @@ class BuiltinContainer(DataContainer[BUILTIN]):
     def get_value(self) -> Result[BUILTIN, None]:
         return super().get_value()
 
+    @typechecked
     def _serialize_value(self, value: BUILTIN) -> str:
         # Replace all non-serializeable values with ""
         #   This should only happen for untyped lists and dicts
@@ -334,6 +351,7 @@ class BuiltinContainer(DataContainer[BUILTIN]):
             default=lambda _: "",
         )
 
+    @typechecked
     def deserialize_value(self, ser_value: str) -> Result[None, str]:
         value = json.loads(ser_value)
         return self.set_value(value)
@@ -372,6 +390,7 @@ class NumericContainer(BuiltinContainer[NUM]):
     lower_limit: NUM
     upper_limit: NUM
 
+    @typechecked
     def __init__(
         self,
         min_value: Optional[NUM] = None,
@@ -384,6 +403,7 @@ class NumericContainer(BuiltinContainer[NUM]):
 
         super().__init__(*args, **kwargs)
 
+    @typechecked
     def set_value(self, value: NUM) -> Result[None, str]:
         if value < self.min_value:
             return Err(f"Given value {value} is smaller than minimum {self.min_value}")
@@ -500,6 +520,7 @@ class StringContainer(BuiltinContainer[STRING]):
         config["strict_length"] = msg.string_strict_length
         return Ok(config)
 
+    @typechecked
     def set_value(self, value: STRING) -> Result[None, str]:
         if len(value) > self.max_length:
             return Err(
@@ -548,6 +569,7 @@ class PathType(StringContainer[str]):
     _type = str
     _value = ""
 
+    @typechecked
     def set_value(self, value: str) -> Result[None, str]:
         if not value.startswith("file://") and not value.startswith("package://"):
             return Err(f"Value {value} is not a valid file or package uri")
@@ -571,9 +593,11 @@ class BytesType(StringContainer[bytes]):
     max_length = 1
     strict_length = True
 
+    @typechecked
     def _serialize_value(self, value: bytes) -> str:
         return value.hex(" ")
 
+    @typechecked
     def deserialize_value(self, ser_value: str) -> Result[None, str]:
         try:
             value = bytes.fromhex(ser_value)
@@ -602,6 +626,7 @@ class IterableContainer(BuiltinContainer[ITER]):
     max_length: int = 2**64 - 1
     strict_length: bool = False
 
+    @typechecked
     def __init__(
         self,
         element_type: Optional[DataContainer],
@@ -681,6 +706,7 @@ class IterableContainer(BuiltinContainer[ITER]):
         return inner_type_msg
 
     @abc.abstractmethod
+    @typechecked
     def set_value(self, value: ITER) -> Result[None, str]:
         if len(value) > self.max_length:
             return Err(
@@ -715,7 +741,8 @@ class ListType(IterableContainer[list[Any]]):
     _type = list[Any]
     _value = []
 
-    def set_value(self, value: list[Any]) -> Result[None, str]:
+    @typechecked
+    def set_value(self, value: list) -> Result[None, str]:
         if self._element_type is None:
             return super().set_value(value)
         for item in value:
@@ -726,6 +753,7 @@ class ListType(IterableContainer[list[Any]]):
                     pass
         return super().set_value(value)
 
+    @typechecked
     def _serialize_value(self, value: list[Any]) -> str:
         if self._element_type is None:
             return super()._serialize_value(value)
@@ -741,6 +769,7 @@ class ListType(IterableContainer[list[Any]]):
             serialized_list.append(ser_item)
         return super()._serialize_value(serialized_list)
 
+    @typechecked
     def deserialize_value(self, ser_value: str) -> Result[None, str]:
         if self._element_type is None:
             return super().deserialize_value(ser_value)
@@ -777,6 +806,7 @@ class DictType(IterableContainer[dict[str, Any]]):
     _type = dict[str, Any]
     _value = {}
 
+    @typechecked
     def set_value(self, value: dict) -> Result[None, str]:
         cleaned_keys = {str(k): v for k, v in value.items()}
         if self._element_type is None:
@@ -789,6 +819,7 @@ class DictType(IterableContainer[dict[str, Any]]):
                     pass
         return super().set_value(cleaned_keys)
 
+    @typechecked
     def _serialize_value(self, value: dict[str, Any]) -> str:
         if self._element_type is None:
             return super()._serialize_value(value)
@@ -804,6 +835,7 @@ class DictType(IterableContainer[dict[str, Any]]):
             serialized_dict[key] = ser_item
         return super()._serialize_value(serialized_dict)
 
+    @typechecked
     def deserialize_value(self, ser_value: str) -> Result[None, str]:
         if self._element_type is None:
             return super().deserialize_value(ser_value)
@@ -837,6 +869,7 @@ BUILTIN_TYPE_MAP: dict[type, type[DataContainer]] = {
 }
 
 
+@typechecked
 def serialize_class(cls: type) -> str:
     type_name = cls.__name__
     module = getmodule(cls)
@@ -844,6 +877,7 @@ def serialize_class(cls: type) -> str:
     return module_name + type_name
 
 
+@typechecked
 def deserialize_class(ser_cls: str) -> Result[type, str]:
     *mod_path, cls_name = ser_cls.split(".")
     try:
@@ -867,6 +901,7 @@ class BuiltinType(TypeContainerMixin, DataContainer[type]):
     _value = int
     valid_types: list[type]
 
+    @typechecked
     def __init__(
         self,
         valid_types: list[type] = list(BUILTIN_TYPE_MAP.keys()),
@@ -896,6 +931,7 @@ class BuiltinType(TypeContainerMixin, DataContainer[type]):
         config["valid_types"] = valid_types
         return Ok(config)
 
+    @typechecked
     def set_value(self, value: type) -> Result[None, str]:
         if value not in self.valid_types:
             return Err(
@@ -928,6 +964,7 @@ class BuiltinType(TypeContainerMixin, DataContainer[type]):
             case Ok(value):
                 return self.set_value(value)
 
+    @typechecked
     def get_value_field(self) -> Result[type[DataContainer], None]:
         match self.get_value():
             case Err(None):
@@ -948,7 +985,13 @@ class RosContainer(DataContainer[ROS]):
     interface_kind: int
     interface_id: int
 
-    def __init__(self, interface_id=0, *args, **kwargs) -> None:
+    @typechecked
+    def __init__(
+        self,
+        interface_id=0,
+        *args,
+        **kwargs,
+    ) -> None:
         if not hasattr(self, "interface_kind"):
             raise RuntimeError(
                 "All concrete implementations have to specify a kind of ROS interface"
@@ -969,6 +1012,7 @@ class RosContainer(DataContainer[ROS]):
         return Ok(config)
 
     @classmethod
+    @typechecked
     def from_msg(cls, msg: NodeDataType) -> Result[Self, str]:
         if not hasattr(cls, "interface_kind"):
             raise NotImplementedError("Called on abstract base class")
@@ -984,6 +1028,7 @@ class RosContainer(DataContainer[ROS]):
     def serialize_type(self) -> NodeDataType:
         type_msg = super().serialize_type()
         type_msg.ros_interface_kind = self.interface_kind
+        type_msg.interface_id = self.interface_id
         return type_msg
 
 
@@ -1062,6 +1107,7 @@ class RosMsgContainer(RosContainer[Any]):
     def _serialize_value(self, value: Any) -> str:
         return json.dumps(rosidl_runtime_py.message_to_ordereddict(value))
 
+    @typechecked
     def deserialize_value(self, ser_value: str) -> Result[None, str]:
         try:
             value = rosidl_runtime_py.set_message_fields(
@@ -1114,17 +1160,17 @@ class RosTypeContainer(RosContainer[type]):
     def _validate(value: type) -> bool:
         raise NotImplementedError("Can't validate on a base class")
 
+    @typechecked
     def set_value(self, value: type) -> Result[None, str]:
         if not self._validate(value):
             return Err(f"Value {value} is not a matching ROS type")
         return super().set_value(value)
 
+    @typechecked
     def _serialize_value(self, value: type) -> str:
-        reg_match = re.match(r"([\w\.]*)\(.*\)", str(value))
-        if not reg_match:
-            return ""
-        return reg_match[1].replace(".", "/")
+        return get_interface_name(value)
 
+    @typechecked
     def deserialize_value(self, ser_value: str) -> Result[None, str]:
         try:
             msg = rosidl_runtime_py.utilities.get_interface(ser_value)
@@ -1149,9 +1195,11 @@ class RosTopicType(TypeContainerMixin, RosTypeContainer):
     _value = msg.Empty
 
     @staticmethod
+    @typechecked
     def _validate(value: type) -> bool:
         return rosidl_runtime_py.utilities.is_message(value)
 
+    @typechecked
     def get_value_field(self) -> Result[type[DataContainer], None]:
         match self.get_value():
             case Err(None):
@@ -1175,6 +1223,7 @@ class RosServiceType(RosTypeContainer):
     _value = srv.Trigger
 
     @staticmethod
+    @typechecked
     def _validate(value: type) -> bool:
         return rosidl_runtime_py.utilities.is_service(value)
 
@@ -1189,6 +1238,7 @@ class RosActionType(RosTypeContainer):
     _value = action.Fibonacci
 
     @staticmethod
+    @typechecked
     def _validate(value: type) -> bool:
         return rosidl_runtime_py.utilities.is_action(value)
 
@@ -1208,6 +1258,7 @@ class RosComponentType(RosTypeContainer):
     _value = msg.Empty
 
     @staticmethod
+    @typechecked
     def _validate(value: type) -> bool:
         return rosidl_runtime_py.utilities.is_message(value)
 
@@ -1225,12 +1276,15 @@ class BuiltinOrRosType(TypeContainerMixin, DataContainer[type]):
     type_identifier = NodeDataType.BUILTIN_OR_ROS_TYPE
 
     @classmethod
+    @typechecked
     def _dict_from_msg(cls, msg: NodeDataType) -> Result[dict, str]:
         return Err("Placeholder cannot be constructed from message")
 
+    @typechecked
     def set_value(self, value: type) -> Result[None, str]:
         return Err("Placeholder does not accept values")
 
+    @typechecked
     def is_compatible(self, other: DataContainer) -> bool:
         if isinstance(other, BuiltinType):
             return True
@@ -1241,12 +1295,15 @@ class BuiltinOrRosType(TypeContainerMixin, DataContainer[type]):
     def serialize_type(self) -> NodeDataType:
         return super().serialize_type()
 
+    @typechecked
     def _serialize_value(self, value: type) -> str:
         return ""
 
+    @typechecked
     def deserialize_value(self, ser_value: str) -> Result[None, str]:
         return Err("Placeholder does not accept values")
 
+    @typechecked
     def get_value_field(self) -> Result[type[DataContainer], None]:
         return Err(None)
 
@@ -1257,6 +1314,7 @@ class ReferenceContainer(DataContainer[Any]):
     _container_map: dict[str, DataContainer[Any]] = {}
     _inner_type: Optional[DataContainer[Any]] = None
 
+    @typechecked
     def __init__(
         self,
         reference: str,
@@ -1290,11 +1348,13 @@ class ReferenceContainer(DataContainer[Any]):
         )
         return Ok(None)
 
+    @typechecked
     def set_type_map(self, new_map: dict[str, DataContainer[Any]]) -> Result[None, str]:
         self._container_map = new_map
         return self._set_inner_type()
 
     @classmethod
+    @typechecked
     def _dict_from_msg(cls, msg: NodeDataType) -> Result[dict, str]:
         match super()._dict_from_msg(msg):
             case Err(e):
@@ -1319,6 +1379,7 @@ class ReferenceContainer(DataContainer[Any]):
         type_msg.reference_target = self._reference
         return type_msg
 
+    @typechecked
     def get_runtime_type(self) -> DataContainer:
         if self._inner_type is None:
             return self
@@ -1349,6 +1410,7 @@ class ReferenceContainer(DataContainer[Any]):
             return None
         return self._inner_type.reset_updated()
 
+    @typechecked
     def _serialize_value(self, value: None) -> str:
         if self._inner_type is None:
             return ""
@@ -1376,6 +1438,7 @@ class IterableReferenceContainer(ReferenceContainer):
     max_length: int = 2**64 - 1
     strict_length: bool = False
 
+    @typechecked
     def __init__(
         self,
         reference: str,
@@ -1408,6 +1471,7 @@ class ReferenceListType(ReferenceContainer):
 
     type_identifier = NodeDataType.REFERENCE_LIST_TYPE
 
+    @typechecked
     def _set_inner_type(self) -> Result[None, str]:
         match super()._set_inner_type():
             case Err(e):
@@ -1428,6 +1492,7 @@ class ReferenceDictType(ReferenceContainer):
 
     type_identifier = NodeDataType.REFERENCE_DICT_TYPE
 
+    @typechecked
     def _set_inner_type(self) -> Result[None, str]:
         match super()._set_inner_type():
             case Err(e):
