@@ -56,10 +56,9 @@ class NameSwitch(FlowControl):
         return Ok(BTNodeState.IDLE)
 
     def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        match self.inputs["name"].get_value_as(str):
-            case Err(v):
-                self.logerr(f"Given value {v} is not a string")
-                return Ok(BTNodeState.FAILED)
+        match self.inputs.get_value_as("name", str):
+            case Err(e):
+                return Err(e)
             case Ok(n):
                 name = n
         if name not in self.child_map:

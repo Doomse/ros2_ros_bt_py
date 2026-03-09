@@ -32,7 +32,6 @@ from ros_bt_py.exceptions import BehaviorTreeException
 from ros_bt_py.helpers import BTNodeState
 from ros_bt_py.node import Leaf, define_bt_node
 from ros_bt_py.node_config import NodeConfig
-from ros_bt_py.custom_types import TypeWrapper, TYPE_BUILTIN
 
 
 @define_bt_node(
@@ -64,14 +63,14 @@ class Constant(Leaf):
         return Ok(BTNodeState.IDLE)
 
     def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        match self.inputs["constant_value"].get_value():
-            case Err(None):
-                return Err(BehaviorTreeException("Static value is unset"))
+        match self.inputs.get_value("constant_value"):
+            case Err(e):
+                return Err(e)
             case Ok(v):
                 value = v
-        match self.outputs["constant"].set_value(value):
+        match self.outputs.set_value("constant", value):
             case Err(e):
-                return Err(BehaviorTreeException(e))
+                return Err(e)
             case Ok(None):
                 pass
         return Ok(BTNodeState.SUCCEEDED)

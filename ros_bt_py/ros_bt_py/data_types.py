@@ -215,7 +215,8 @@ class DataContainer(Generic[ANY], abc.ABC):
         return Err(value)
 
     def reset_value(self):
-        self._value = None
+        if not self.is_static:
+            self._value = None
 
     def is_updated(self) -> bool:
         return self._updated

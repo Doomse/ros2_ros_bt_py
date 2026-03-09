@@ -32,7 +32,7 @@ from ros_bt_py_interfaces.msg import UtilityBounds
 from ros_bt_py.data_types import BoolType, IntType, StringType
 from ros_bt_py.node import Decorator, define_bt_node
 from ros_bt_py.node_config import NodeConfig
-from ros_bt_py.helpers import BTNodeState, type_mismatch_error
+from ros_bt_py.helpers import BTNodeState
 from ros_bt_py.exceptions import BehaviorTreeException
 
 
@@ -90,9 +90,9 @@ class IgnoreRunning(Decorator):
     def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
         for child in self.children:
             return child.setup()
-        match self.inputs["running_is_success"].get_value_as(bool):
-            case Err(v):
-                return type_mismatch_error(v, bool, "running_is_success")
+        match self.inputs.get_value_as("running_is_success", bool):
+            case Err(e):
+                return Err(e)
             case Ok(b):
                 self._running_is_success = b
         return Ok(BTNodeState.IDLE)
@@ -275,9 +275,9 @@ class Retry(Decorator):
         self._retry_count = 0
         for child in self.children:
             return child.setup()
-        match self.inputs["num_retries"].get_value_as(int):
-            case Err(v):
-                return type_mismatch_error(v, int, "num_retries")
+        match self.inputs.get_value_as("num_retries", int):
+            case Err(e):
+                return Err(e)
             case Ok(n):
                 self._retry_limit = n
         return Ok(BTNodeState.IDLE)
@@ -341,9 +341,9 @@ class Repeat(Decorator):
         self._repeat_count = 0
         for child in self.children:
             return child.setup()
-        match self.inputs["num_repeats"].get_value_as(int):
-            case Err(v):
-                return type_mismatch_error(v, int, "num_repeats")
+        match self.inputs.get_value_as("num_repeats", int):
+            case Err(e):
+                return Err(e)
             case Ok(n):
                 self._num_repeats = n
         return Ok(BTNodeState.IDLE)
@@ -412,9 +412,9 @@ class RepeatNoAutoReset(Repeat):
         return super()._do_setup()
 
     def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        match self.inputs["reset"].get_value_as(bool):
-            case Err(v):
-                return type_mismatch_error(v, bool, "reset")
+        match self.inputs.get_value_as("reset", bool):
+            case Err(e):
+                return Err(e)
             case Ok(b):
                 reset = b
         if reset:
@@ -674,9 +674,9 @@ class Watch(Decorator):
         if len(self.children) == 0:
             return Ok(BTNodeState.SUCCEEDED)
 
-        match self.inputs["watch"].get_value_as(str):
-            case Err(v):
-                return type_mismatch_error(v, str, "watch")
+        match self.inputs.get_value_as("watch", str):
+            case Err(e):
+                return Err(e)
             case Ok(s):
                 watch_str = s
 

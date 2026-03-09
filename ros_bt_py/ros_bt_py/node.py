@@ -81,7 +81,7 @@ from ros_bt_py.exceptions import (
     NodeConfigError,
     TreeTopologyError,
 )
-from ros_bt_py.node_config import NodeConfig
+from ros_bt_py.node_config import NodeConfig, NodeDataMap
 from ros_bt_py.helpers import BTNodeState
 from ros_bt_py.ros_helpers import ros_to_uuid, uuid_to_ros
 
@@ -344,16 +344,11 @@ class Node(object, metaclass=NodeMeta):
                 case Ok(None):
                     pass
 
+        self.inputs = NodeDataMap(f"{self.name}.inputs", self.node_config.inputs)
+        self.outputs = NodeDataMap(f"{self.name}.outputs", self.node_config.outputs)
+
         # Don't setup automatically - nodes should be available as pure data
         # containers before the user decides to call setup() themselves!
-
-    @property
-    def inputs(self):
-        return self.node_config.inputs
-
-    @property
-    def outputs(self):
-        return self.node_config.outputs
 
     @property
     def state(self) -> BTNodeState:
@@ -437,7 +432,7 @@ class Node(object, metaclass=NodeMeta):
                     )
                 )
 
-            for container in self.outputs.values():
+            for container in self.node_config.outputs.values():
                 container.reset_value()
                 container.reset_updated()
 
@@ -486,7 +481,7 @@ class Node(object, metaclass=NodeMeta):
                 return Err(BehaviorTreeException("Trying to tick uninitialized node!"))
 
             # Outputs are updated in the tick. To catch that, we need to reset here.
-            for container in self.outputs.values():
+            for container in self.node_config.outputs.values():
                 container.reset_updated()
 
             tick_result = self._do_tick()
@@ -501,7 +496,7 @@ class Node(object, metaclass=NodeMeta):
             # child outputs (or even our own). If they are, update information
             # is lost, unless it is processed after all child ticks in the same
             # cycle!
-            for container in self.inputs.values():
+            for container in self.node_config.inputs.values():
                 container.reset_updated()
 
             valid_state_result = self.check_if_in_invalid_state(
@@ -591,7 +586,7 @@ class Node(object, metaclass=NodeMeta):
             if check_state_result.is_err():
                 return Err(check_state_result.unwrap_err())
 
-            for container in self.outputs.values():
+            for container in self.node_config.outputs.values():
                 container.reset_updated()
             return Ok(self.state)
 
@@ -636,10 +631,10 @@ class Node(object, metaclass=NodeMeta):
             # Reset input/output reset state and set outputs to None
             # before calling _do_reset() - the node can overwrite the None
             # with more appropriate values if need be.
-            for container in self.inputs.values():
+            for container in self.node_config.inputs.values():
                 container.reset_updated()
 
-            for container in self.outputs.values():
+            for container in self.node_config.outputs.values():
                 container.reset_value()
                 container.reset_updated()
 
@@ -1252,22 +1247,20 @@ class Node(object, metaclass=NodeMeta):
             inputs=[
                 NodeIO(
                     key=key,
-                    type=self.inputs[key].serialize_type(),
+                    type=container.serialize_type(),
                     # Only add serialized values for static inputs
                     serialized_value=(
-                        self.inputs[key].serialize_value()
-                        if self.inputs[key].is_static
-                        else ""
+                        container.serialize_value() if container.is_static else ""
                     ),
                 )
-                for key in self.inputs
+                for key, container in self.node_config.inputs.items()
             ],
             outputs=[
                 NodeIO(
                     key=key,
-                    type=self.outputs[key].serialize_type(),
+                    type=container.serialize_type(),
                 )
-                for key in self.outputs
+                for key, container in self.node_config.outputs.items()
             ],
             max_children=(
                 self.node_config.max_children

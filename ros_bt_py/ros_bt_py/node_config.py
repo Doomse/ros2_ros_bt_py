@@ -26,7 +26,7 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 from copy import deepcopy
-from typing import Dict, Optional, List
+from typing import Any, Optional, TypeVar
 
 from typeguard import typechecked
 
@@ -39,15 +39,88 @@ from ros_bt_py.exceptions import NodeConfigError
 
 
 @typechecked
-class NodeConfig(object):
+class NodeDataMap:
+    """
+    This wrapper around a plain `dict[str, DataContainer]`
+    for easier access to value and updated status and easier error handling.
+    """
+
+    def __init__(self, name: str, data: dict[str, DataContainer]) -> None:
+        self.name = name
+        self.data = data
+
+    def _get_item(self, key: str) -> Result[DataContainer, NodeConfigError]:
+        if key not in self.data.keys():
+            return Err(NodeConfigError(f"Key {key} does not exist in {self.name}"))
+        return Ok(self.data[key])
+
+    def get_value(self, key: str) -> Result[Any, NodeConfigError]:
+        match self._get_item(key):
+            case Err(e):
+                return Err(e)
+            case Ok(c):
+                container = c
+        match container.get_value():
+            case Err(None):
+                return Err(
+                    NodeConfigError(f"No value set for key {key} in {self.name}")
+                )
+            case Ok(v):
+                return Ok(v)
+
+    T = TypeVar("T")
+
+    def get_value_as(self, key: str, type_: type[T]) -> Result[T, NodeConfigError]:
+        match self._get_item(key):
+            case Err(e):
+                return Err(e)
+            case Ok(c):
+                container = c
+        match container.get_value_as(type_):
+            case Err(v):
+                return Err(
+                    NodeConfigError(
+                        f"Value {v} for key {key} in {self.name} is not of type {type_}"
+                    )
+                )
+            case Ok(v):
+                return Ok(v)
+
+    def is_updated(self, key: str) -> Result[bool, NodeConfigError]:
+        match self._get_item(key):
+            case Err(e):
+                return Err(e)
+            case Ok(c):
+                container = c
+        return Ok(container.is_updated())
+
+    def set_value(self, key: str, value: Any) -> Result[None, NodeConfigError]:
+        match self._get_item(key):
+            case Err(e):
+                return Err(e)
+            case Ok(c):
+                container = c
+        match container.set_value(value):
+            case Err(s):
+                return Err(
+                    NodeConfigError(
+                        f"Error setting value {value} for key {key} in {self.name}: {s}"
+                    )
+                )
+            case Ok(None):
+                return Ok(None)
+
+
+@typechecked
+class NodeConfig:
 
     def __init__(
         self,
-        inputs: Dict[str, DataContainer],
-        outputs: Dict[str, DataContainer],
+        inputs: dict[str, DataContainer],
+        outputs: dict[str, DataContainer],
         max_children: Optional[int],
         version: str = "",
-        tags: Optional[List[str]] = None,
+        tags: Optional[list[str]] = None,
     ):
         """
         Describe the interface of a :class:ros_bt_py.node.Node .

@@ -59,11 +59,19 @@ class Compare(Leaf):
         return Ok(BTNodeState.IDLE)
 
     def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        if self.inputs["a"].get_value() == self.inputs["b"].get_value():
-            return Ok(BTNodeState.SUCCEEDED)
+        match self.inputs.get_value("a"):
+            case Err(e):
+                return Err(e)
+            case Ok(v):
+                value_a = v
+        match self.inputs.get_value("b"):
+            case Err(e):
+                return Err(e)
+            case Ok(v):
+                value_b = v
 
-        # If we didn't received both values yet, or we did and they're
-        # not equal, fail
+        if value_a == value_b:
+            return Ok(BTNodeState.SUCCEEDED)
         return Ok(BTNodeState.FAILED)
 
     def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
@@ -101,12 +109,34 @@ class CompareNewOnly(Leaf):
         return Ok(BTNodeState.IDLE)
 
     def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        if self.inputs["a"].is_updated() or self.inputs["b"].is_updated():
-            if self.inputs["a"].get_value() == self.inputs["b"].get_value():
-                return Ok(BTNodeState.SUCCEEDED)
-            else:
-                return Ok(BTNodeState.FAILED)
-        return Ok(BTNodeState.RUNNING)
+        match self.inputs.is_updated("a"):
+            case Err(e):
+                return Err(e)
+            case Ok(b):
+                a_updated = b
+        match self.inputs.is_updated("b"):
+            case Err(e):
+                return Err(e)
+            case Ok(b):
+                b_updated = b
+
+        if not a_updated and not b_updated:
+            return Ok(BTNodeState.RUNNING)
+
+        match self.inputs.get_value("a"):
+            case Err(e):
+                return Err(e)
+            case Ok(v):
+                value_a = v
+        match self.inputs.get_value("b"):
+            case Err(e):
+                return Err(e)
+            case Ok(v):
+                value_b = v
+
+        if value_a == value_b:
+            return Ok(BTNodeState.SUCCEEDED)
+        return Ok(BTNodeState.FAILED)
 
     def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
         # Nothing to do
@@ -140,16 +170,17 @@ class ALessThanB(Leaf):
         return Ok(BTNodeState.IDLE)
 
     def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        match self.inputs["a"].get_value():
-            case Err(None):
-                return Ok(BTNodeState.FAILED)
+        match self.inputs.get_value("a"):
+            case Err(e):
+                return Err(e)
             case Ok(v):
                 value_a = v
-        match self.inputs["b"].get_value():
-            case Err(None):
-                return Ok(BTNodeState.FAILED)
+        match self.inputs.get_value("b"):
+            case Err(e):
+                return Err(e)
             case Ok(v):
                 value_b = v
+
         if value_a < value_b:
             return Ok(BTNodeState.SUCCEEDED)
         return Ok(BTNodeState.FAILED)

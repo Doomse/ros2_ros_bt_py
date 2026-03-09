@@ -90,15 +90,6 @@ class MathUnaryOperandType(object):
         self.operand_type = operand_type
 
 
-@typechecked
-def type_mismatch_error(
-    value: Any, type_: type, key: str
-) -> Err[BehaviorTreeException]:
-    return Err(
-        BehaviorTreeException(f"Value {value} at key {key} is not of type {type_}")
-    )
-
-
 # handling nested objects,
 # see https://stackoverflow.com/questions/31174295/getattr-and-setattr-on-nested-objects
 def rgetattr(obj, attr, *args):
