@@ -222,9 +222,14 @@ class DataContainer(Generic[ANY], abc.ABC):
     def is_updated(self) -> bool:
         return self._updated
 
-    def reset_updated(self) -> None:
-        if not self.is_static:
+    def restore_updated(self) -> None:
+        if self.is_static:
+            self._updated = True
+        else:
             self._updated = False
+
+    def reset_updated(self) -> None:
+        self._updated = False
 
     @typechecked
     def serialize_value(self) -> str:

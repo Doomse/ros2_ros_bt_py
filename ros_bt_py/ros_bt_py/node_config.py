@@ -90,13 +90,17 @@ class NodeInputMap(NodeDataMap):
             case Ok(v):
                 return Ok(v)
 
-    def is_updated(self, key: str) -> Result[bool, NodeConfigError]:
-        match self._get_item(key):
-            case Err(e):
-                return Err(e)
-            case Ok(c):
-                container = c
-        return Ok(container.is_updated())
+    def any_updated(self, *keys: str) -> Result[bool, NodeConfigError]:
+        updated = False
+        for key in keys:
+            match self._get_item(key):
+                case Err(e):
+                    return Err(e)
+                case Ok(c):
+                    container = c
+            if container.is_updated():
+                updated = True
+        return Ok(updated)
 
 
 @typechecked
@@ -117,6 +121,15 @@ class NodeOutputMap(NodeDataMap):
                 )
             case Ok(None):
                 return Ok(None)
+
+    def set_multiple_values(self, **value_dict: Any) -> Result[None, NodeConfigError]:
+        for key, value in value_dict:
+            match self.set_value(key, value):
+                case Err(e):
+                    return Err(e)
+                case Ok(None):
+                    pass
+        return Ok(None)
 
 
 @typechecked

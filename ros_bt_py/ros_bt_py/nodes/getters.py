@@ -29,7 +29,7 @@
 
 import abc
 
-from ros_bt_py.vendor.result import Result, Ok, Err
+from ros_bt_py.vendor.result import Result, Ok, Err, do
 
 from ros_bt_py.data_types import (
     BlankType,
@@ -125,38 +125,36 @@ class GetListItem(Getter):
                 if s in [BTNodeState.FAILED, BTNodeState.RUNNING]:
                     return Ok(s)
 
-        match self.inputs.is_updated("list"):
+        match self.inputs.any_updated("list", "index"):
             case Err(e):
                 return Err(e)
             case Ok(b):
-                list_updated = b
-        match self.inputs.get_value_as("list", list):
-            case Err(e):
-                return Err(e)
-            case Ok(l):
-                in_list = l
-        match self.inputs.get_value_as("index", int):
-            case Err(e):
-                return Err(e)
-            case Ok(i):
-                index = i
+                updated = b
 
-        if list_updated:
-            try:
-                output = in_list[index]
-            except IndexError:
-                self.logerr("List index %d out of bound for list %s" % (index, in_list))
-                return Ok(BTNodeState.FAILED)
-            match self.outputs.set_value("item", output):
+        try:
+            match do(
+                Ok(li[i])
+                for li in self.inputs.get_value_as("list", list)
+                for i in self.inputs.get_value_as("index", int)
+            ):
+                case Err(e):
+                    return Err(e)
+                case Ok(o):
+                    out = o
+        except IndexError as e:
+            self.logerr(str(e))
+            return Ok(BTNodeState.FAILED)
+
+        if updated:
+            match self.outputs.set_value("item", out):
                 case Err(e):
                     return Err(e)
                 case Ok(None):
                     return Ok(BTNodeState.SUCCEEDED)
         else:
             if self.succeed_on_stale_data:
-                # We don't need to check whether we have gotten any
-                # data at all, because if we hadn't the tick method
-                # would raise an error
+                # We don't need to check whether we have gotten any data at all,
+                #   because if we hadn't the `do` call before would've failed.
                 return Ok(BTNodeState.SUCCEEDED)
             else:
                 self.loginfo("No new data since last tick!")
@@ -187,35 +185,36 @@ class GetDictItem(Getter):
                 if s in [BTNodeState.FAILED, BTNodeState.RUNNING]:
                     return Ok(s)
 
-        match self.inputs.is_updated("dict"):
+        match self.inputs.any_updated("dict", "key"):
             case Err(e):
                 return Err(e)
             case Ok(b):
-                dict_updated = b
-        match self.inputs.get_value_as("dict", dict):
-            case Err(e):
-                return Err(e)
-            case Ok(d):
-                in_dict = d
-        match self.inputs.get_value_as("key", str):
-            case Err(e):
-                return Err(e)
-            case Ok(s):
-                key = s
+                updated = b
 
-        if dict_updated:
-            try:
-                output = in_dict[key]
-            except KeyError:
-                self.logwarn(f"Key {key} is not in dict {str(in_dict)}")
-                return Ok(BTNodeState.FAILED)
-            match self.outputs.set_value("value", output):
+        try:
+            match do(
+                Ok(d[k])
+                for d in self.inputs.get_value_as("dict", dict)
+                for k in self.inputs.get_value_as("key", str)
+            ):
+                case Err(e):
+                    return Err(e)
+                case Ok(o):
+                    out = o
+        except KeyError as e:
+            self.logwarn(str(e))
+            return Ok(BTNodeState.FAILED)
+
+        if updated:
+            match self.outputs.set_value("value", out):
                 case Err(e):
                     return Err(e)
                 case Ok(None):
                     return Ok(BTNodeState.SUCCEEDED)
         else:
             if self.succeed_on_stale_data:
+                # We don't need to check whether we have gotten any data at all,
+                #   because if we hadn't the `do` call before would've failed.
                 return Ok(BTNodeState.SUCCEEDED)
             else:
                 self.loginfo("No new data since last tick!")
@@ -246,37 +245,36 @@ class GetMultipleDictItems(Getter):
                 if s in [BTNodeState.FAILED, BTNodeState.RUNNING]:
                     return Ok(s)
 
-        match self.inputs.is_updated("dict"):
+        match self.inputs.any_updated("dict", "keys"):
             case Err(e):
                 return Err(e)
             case Ok(b):
-                dict_updated = b
-        match self.inputs.get_value_as("dict", dict):
-            case Err(e):
-                return Err(e)
-            case Ok(d):
-                in_dict = d
-        match self.inputs.get_value_as("keys", list):
-            case Err(e):
-                return Err(e)
-            case Ok(l):
-                keys = l
+                updated = b
 
-        if dict_updated:
-            try:
-                outputs = [in_dict[key] for key in keys]
-            except KeyError:
-                self.logwarn(
-                    f"One of the keys from {keys} is not in dict {str(in_dict)}"
-                )
-                return Ok(BTNodeState.FAILED)
-            match self.outputs.set_value("values", outputs):
+        try:
+            match do(
+                Ok([d[k] for k in li])
+                for d in self.inputs.get_value_as("dict", dict)
+                for li in self.inputs.get_value_as("keys", list)
+            ):
+                case Err(e):
+                    return Err(e)
+                case Ok(o):
+                    out_list = o
+        except KeyError as e:
+            self.logwarn(str(e))
+            return Ok(BTNodeState.FAILED)
+
+        if updated:
+            match self.outputs.set_value("values", out_list):
                 case Err(e):
                     return Err(e)
                 case Ok(None):
                     return Ok(BTNodeState.SUCCEEDED)
         else:
             if self.succeed_on_stale_data:
+                # We don't need to check whether we have gotten any data at all,
+                #   because if we hadn't the `do` call before would've failed.
                 return Ok(BTNodeState.SUCCEEDED)
             else:
                 self.loginfo("No new data since last tick!")
@@ -314,36 +312,37 @@ class GetAttr(Getter):
                 if s in [BTNodeState.FAILED, BTNodeState.RUNNING]:
                     return Ok(s)
 
-        match self.inputs.is_updated("object"):
+        match self.inputs.any_updated("object", "attr_name"):
             case Err(e):
                 return Err(e)
             case Ok(b):
-                obj_updated = b
-        match self.inputs.get_value_as("object", object):
-            case Err(e):
-                return Err(e)
-            case Ok(o):
-                in_obj = o
-        match self.inputs.get_value_as("attr_name", str):
-            case Err(e):
-                return Err(e)
-            case Ok(s):
-                attr = s
+                updated = b
 
-        if obj_updated:
-            try:
-                # TODO Maybe it would be nice to allow for calling 0-argument functions this way?
-                output = rgetattr(in_obj, attr)
-            except AttributeError:
-                self.logwarn(f"Object {in_obj} does not have attribute {attr}")
-                return Ok(BTNodeState.FAILED)
-            match self.outputs.set_value("attr", output):
+        try:
+            # TODO Maybe it would be nice to allow for calling 0-argument functions this way?
+            match do(
+                Ok(rgetattr(o, a))
+                for o in self.inputs.get_value_as("object", object)
+                for a in self.inputs.get_value_as("attr_name", str)
+            ):
+                case Err(e):
+                    return Err(e)
+                case Ok(o):
+                    out = o
+        except AttributeError as e:
+            self.logwarn(str(e))
+            return Ok(BTNodeState.FAILED)
+
+        if updated:
+            match self.outputs.set_value("attr", out):
                 case Err(e):
                     return Err(e)
                 case Ok(None):
                     return Ok(BTNodeState.SUCCEEDED)
         else:
             if self.succeed_on_stale_data:
+                # We don't need to check whether we have gotten any data at all,
+                #   because if we hadn't the `do` call before would've failed.
                 return Ok(BTNodeState.SUCCEEDED)
             else:
                 self.loginfo("No new data since last tick!")

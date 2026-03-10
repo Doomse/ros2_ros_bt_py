@@ -26,7 +26,7 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
-from ros_bt_py.vendor.result import Result, Ok, Err
+from ros_bt_py.vendor.result import Result, Ok, Err, do
 
 from ros_bt_py.data_types import (
     BuiltinOrRosType,
@@ -56,12 +56,9 @@ class ListLength(Leaf):
         return Ok(BTNodeState.IDLE)
 
     def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        match self.inputs.get_value_as("list", list):
-            case Err(e):
-                return Err(e)
-            case Ok(l):
-                in_list = l
-        match self.outputs.set_value("length", len(in_list)):
+        match self.inputs.get_value_as("list", list).and_then(
+            lambda li: self.outputs.set_value("length", len(li))
+        ):
             case Err(e):
                 return Err(e)
             case Ok(None):
@@ -98,33 +95,29 @@ class InsertInList(Leaf):
         return Ok(BTNodeState.IDLE)
 
     def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        match self.inputs.is_updated("list"):
+        match self.inputs.any_updated("list", "index", "element"):
             case Err(e):
                 return Err(e)
             case Ok(b):
-                list_updated = b
-        match self.inputs.is_updated("element"):
-            case Err(e):
-                return Err(e)
-            case Ok(b):
-                elem_updated = b
-        match self.inputs.get_value_as("list", list):
+                updated = b
+
+        match do(
+            Ok(li.insert(i, e))
+            for li in self.inputs.get_value_as("list", list)
+            for i in self.inputs.get_value_as("index", int)
+            for e in self.inputs.get_value("element")
+        ):
             case Err(e):
                 return Err(e)
             case Ok(l):
-                in_list = l
-        match self.inputs.get_value("element"):
-            case Err(e):
-                return Err(e)
-            case Ok(e):
-                element = e
-        match self.inputs.get_value_as("index", int):
-            case Err(e):
-                return Err(e)
-            case Ok(i):
-                index = i
-        if list_updated or elem_updated:
-            in_list.insert(index, element)
+                out_list = l
+
+        if updated:
+            match self.outputs.set_value("list", out_list):
+                case Err(e):
+                    return Err(e)
+                case Ok(None):
+                    pass
         return Ok(BTNodeState.SUCCEEDED)
 
     def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
@@ -160,17 +153,16 @@ class IsInList(Leaf):
         return Ok(BTNodeState.IDLE)
 
     def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        match self.inputs.get_value_as("list", list):
+        match do(
+            Ok(e in li)
+            for e in self.inputs.get_value("in")
+            for li in self.inputs.get_value_as("list", list)
+        ):
             case Err(e):
                 return Err(e)
-            case Ok(l):
-                in_list = l
-        match self.inputs.get_value("in"):
-            case Err(e):
-                return Err(e)
-            case Ok(e):
-                element = e
-        if element in in_list:
+            case Ok(r):
+                result = r
+        if result:
             return Ok(BTNodeState.SUCCEEDED)
         else:
             return Ok(BTNodeState.FAILED)
@@ -218,12 +210,12 @@ class IterateList(Decorator):
         self.counter = 0
 
     def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        match self.inputs.is_updated("list"):
+        match self.inputs.any_updated("list"):
             case Err(e):
                 return Err(e)
             case Ok(b):
-                list_updated = b
-        if list_updated:
+                updated = b
+        if updated:
             self.loginfo("Input list changed - resetting iterator")
             self.reset_counter()
 

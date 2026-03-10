@@ -631,9 +631,9 @@ class Node(object, metaclass=NodeMeta):
             if self.state is BTNodeState.SHUTDOWN:
                 return Err(BehaviorTreeException("Trying to reset shutdown node!"))
 
-            # Reset input/output reset state and set outputs to None
+            # Reset input/output state and set outputs to None
             for container in self.node_config.inputs.values():
-                container.reset_updated()
+                container.restore_updated()
 
             for container in self.node_config.outputs.values():
                 container.reset_value()

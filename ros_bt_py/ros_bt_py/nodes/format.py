@@ -28,7 +28,7 @@
 from string import Formatter
 import os
 
-from ros_bt_py.vendor.result import Result, Ok, Err
+from ros_bt_py.vendor.result import Result, Ok, Err, do
 
 from ros_bt_py.data_types import DictType, ListType, StringType
 from ros_bt_py.exceptions import BehaviorTreeException
@@ -89,18 +89,16 @@ class StringConcatenation(Leaf):
         return Ok(BTNodeState.IDLE)
 
     def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        match self.inputs.get_value_as("a", str):
+        match do(
+            Ok(a + b)
+            for a in self.inputs.get_value_as("a", str)
+            for b in self.inputs.get_value_as("b", str)
+        ):
             case Err(e):
                 return Err(e)
-            case Ok(a):
-                string_a = a
-        match self.inputs.get_value_as("b", str):
-            case Err(e):
-                return Err(e)
-            case Ok(b):
-                string_b = b
-        string_out = string_a + string_b
-        match self.outputs.set_value("formatted_string", string_out):
+            case Ok(s):
+                out_string = s
+        match self.outputs.set_value("formatted_string", out_string):
             case Err(e):
                 return Err(e)
             case Ok(None):
@@ -144,21 +142,20 @@ class FormatString(Leaf):
         return Ok(BTNodeState.IDLE)
 
     def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        match self.inputs.get_value_as("format_string", str):
-            case Err(e):
-                return Err(e)
-            case Ok(fs):
-                format_string = fs
-        match self.inputs.get_value_as("dict", dict):
-            case Err(e):
-                return Err(e)
-            case Ok(d):
-                in_dict = d
         try:
-            output_string = myformatter.format(format_string, **in_dict)
+            match do(
+                Ok(myformatter.format(s, **d))
+                for s in self.inputs.get_value_as("format_string", str)
+                for d in self.inputs.get_value_as("dict", dict)
+            ):
+                case Err(e):
+                    return Err(e)
+                case Ok(s):
+                    out_string = s
         except Exception:
+            # TODO Shouldn't this return an error instead of just failed?
             return Ok(BTNodeState.FAILED)
-        match self.outputs.set_value("formatted_string", output_string):
+        match self.outputs.set_value("formatted_string", out_string):
             case Err(e):
                 return Err(e)
             case Ok(None):
@@ -205,24 +202,20 @@ class FormatStringList(Leaf):
         return Ok(BTNodeState.IDLE)
 
     def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        match self.inputs.get_value_as("format_strings", list[str]):
-            case Err(e):
-                return Err(e)
-            case Ok(fl):
-                format_string_list = fl
-        match self.inputs.get_value_as("dict", dict):
-            case Err(e):
-                return Err(e)
-            case Ok(d):
-                in_dict = d
         try:
-            output_string_list = [
-                myformatter.format(format_string, **in_dict)
-                for format_string in format_string_list
-            ]
+            match do(
+                Ok([myformatter.format(s, **d) for s in s_l])
+                for s_l in self.inputs.get_value_as("format_strings", list[str])
+                for d in self.inputs.get_value_as("dict", dict)
+            ):
+                case Err(e):
+                    return Err(e)
+                case Ok(s_l):
+                    out_string_list = s_l
         except Exception:
+            # TODO Shouldn't this return an error instead of just failed?
             return Ok(BTNodeState.FAILED)
-        match self.outputs.set_value("formatted_strings", output_string_list):
+        match self.outputs.set_value("formatted_strings", out_string_list):
             case Err(e):
                 return Err(e)
             case Ok(None):
@@ -254,24 +247,24 @@ class GetFileExtension(Leaf):
         return Ok(BTNodeState.IDLE)
 
     def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        match self.inputs.is_updated("path"):
+        match self.inputs.any_updated("path"):
             case Err(e):
                 return Err(e)
             case Ok(b):
-                path_updated = b
-        match self.inputs.get_value_as("path", str):
-            case Err(e):
-                return Err(e)
-            case Ok(p):
-                path = p
-        if path_updated:
-            filename, extension = os.path.splitext(path)
-            match self.outputs.set_value("filename", filename):
+                updated = b
+
+        if updated:
+            match do(
+                Ok(os.path.splitext(p)) for p in self.inputs.get_value_as("path", str)
+            ):
                 case Err(e):
                     return Err(e)
-                case Ok(None):
-                    pass
-            match self.outputs.set_value("extension", extension):
+                case Ok((f, e)):
+                    filename, extension = f, e
+            match self.outputs.set_multiple_values(
+                filename=filename,
+                extension=extension,
+            ):
                 case Err(e):
                     return Err(e)
                 case Ok(None):

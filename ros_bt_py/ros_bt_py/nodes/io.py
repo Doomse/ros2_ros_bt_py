@@ -58,23 +58,16 @@ class IO(Leaf):
 
     @abc.abstractmethod
     def _abstract_flag(self):
+        # This is used to prevent the common base class from being picked up as valid
         pass
 
     def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
         return Ok(BTNodeState.IDLE)
 
     def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        match self.inputs.get_value("in"):
-            case Err(_):
-                value = None
-            case Ok(v):
-                value = v
-        match self.inputs.get_value("default"):
-            case Err(e):
-                return Err(e)
-            case Ok(v):
-                value = v
-        match self.outputs.set_value("out", value):
+        match self.inputs.get_value("in").or_else(
+            lambda _: self.inputs.get_value("default")
+        ).and_then(lambda val: self.outputs.set_value("out", val)):
             case Err(e):
                 return Err(e)
             case Ok(None):

@@ -27,9 +27,9 @@
 # POSSIBILITY OF SUCH DAMAGE.
 from typing import assert_type, cast
 
-from ros_bt_py.vendor.result import Err, Result, Ok
+from ros_bt_py.vendor.result import Err, Result, Ok, do
 
-from ros_bt_py.data_types import BuiltinOrRosType, ReferenceType, FloatType
+from ros_bt_py.data_types import BuiltinOrRosType, IntType, ReferenceType, FloatType
 from ros_bt_py.exceptions import BehaviorTreeException
 from ros_bt_py.helpers import BTNodeState
 from ros_bt_py.node import Leaf, define_bt_node
@@ -59,18 +59,17 @@ class Compare(Leaf):
         return Ok(BTNodeState.IDLE)
 
     def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        match self.inputs.get_value("a"):
+        match do(
+            Ok(a == b)
+            for a in self.inputs.get_value("a")
+            for b in self.inputs.get_value("b")
+        ):
             case Err(e):
                 return Err(e)
-            case Ok(v):
-                value_a = v
-        match self.inputs.get_value("b"):
-            case Err(e):
-                return Err(e)
-            case Ok(v):
-                value_b = v
+            case Ok(r):
+                result = r
 
-        if value_a == value_b:
+        if result:
             return Ok(BTNodeState.SUCCEEDED)
         return Ok(BTNodeState.FAILED)
 
@@ -109,32 +108,25 @@ class CompareNewOnly(Leaf):
         return Ok(BTNodeState.IDLE)
 
     def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        match self.inputs.is_updated("a"):
+        match self.inputs.any_updated("a", "b"):
             case Err(e):
                 return Err(e)
             case Ok(b):
-                a_updated = b
-        match self.inputs.is_updated("b"):
-            case Err(e):
-                return Err(e)
-            case Ok(b):
-                b_updated = b
-
-        if not a_updated and not b_updated:
+                updated = b
+        if not updated:
             return Ok(BTNodeState.RUNNING)
 
-        match self.inputs.get_value("a"):
+        match do(
+            Ok(a == b)
+            for a in self.inputs.get_value("a")
+            for b in self.inputs.get_value("b")
+        ):
             case Err(e):
                 return Err(e)
-            case Ok(v):
-                value_a = v
-        match self.inputs.get_value("b"):
-            case Err(e):
-                return Err(e)
-            case Ok(v):
-                value_b = v
+            case Ok(r):
+                result = r
 
-        if value_a == value_b:
+        if result:
             return Ok(BTNodeState.SUCCEEDED)
         return Ok(BTNodeState.FAILED)
 
@@ -154,6 +146,14 @@ class CompareNewOnly(Leaf):
 @define_bt_node(
     NodeConfig(
         version="0.1.0",
+        inputs={"a": IntType(), "b": IntType()},
+        outputs={},
+        max_children=0,
+    )
+)
+@define_bt_node(
+    NodeConfig(
+        version="0.1.0",
         inputs={"a": FloatType(), "b": FloatType()},
         outputs={},
         max_children=0,
@@ -170,18 +170,17 @@ class ALessThanB(Leaf):
         return Ok(BTNodeState.IDLE)
 
     def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        match self.inputs.get_value("a"):
+        match do(
+            Ok(a < b)
+            for a in self.inputs.get_value("a")
+            for b in self.inputs.get_value("b")
+        ):
             case Err(e):
                 return Err(e)
-            case Ok(v):
-                value_a = v
-        match self.inputs.get_value("b"):
-            case Err(e):
-                return Err(e)
-            case Ok(v):
-                value_b = v
+            case Ok(r):
+                result = r
 
-        if value_a < value_b:
+        if result:
             return Ok(BTNodeState.SUCCEEDED)
         return Ok(BTNodeState.FAILED)
 

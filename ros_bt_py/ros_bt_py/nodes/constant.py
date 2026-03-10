@@ -63,12 +63,9 @@ class Constant(Leaf):
         return Ok(BTNodeState.IDLE)
 
     def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        match self.inputs.get_value("constant_value"):
-            case Err(e):
-                return Err(e)
-            case Ok(v):
-                value = v
-        match self.outputs.set_value("constant", value):
+        match self.inputs.get_value("constant_value").and_then(
+            lambda val: self.outputs.set_value("constant", val)
+        ):
             case Err(e):
                 return Err(e)
             case Ok(None):
