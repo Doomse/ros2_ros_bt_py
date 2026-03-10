@@ -27,8 +27,10 @@
 # POSSIBILITY OF SUCH DAMAGE.
 from string import Formatter
 import os
+
 from ros_bt_py.vendor.result import Result, Ok, Err
 
+from ros_bt_py.data_types import DictType, ListType, StringType
 from ros_bt_py.exceptions import BehaviorTreeException
 from ros_bt_py.helpers import BTNodeState
 from ros_bt_py.node import Leaf, define_bt_node
@@ -75,9 +77,8 @@ myformatter = ExtendedFormatter()
 @define_bt_node(
     NodeConfig(
         version="0.1.0",
-        options={},
-        inputs={"a": str, "b": str},
-        outputs={"formatted_string": str},
+        inputs={"a": StringType(), "b": StringType()},
+        outputs={"formatted_string": StringType()},
         max_children=0,
     )
 )
@@ -88,7 +89,22 @@ class StringConcatenation(Leaf):
         return Ok(BTNodeState.IDLE)
 
     def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        self.outputs["formatted_string"] = self.inputs["a"] + self.inputs["b"]
+        match self.inputs.get_value_as("a", str):
+            case Err(e):
+                return Err(e)
+            case Ok(a):
+                string_a = a
+        match self.inputs.get_value_as("b", str):
+            case Err(e):
+                return Err(e)
+            case Ok(b):
+                string_b = b
+        string_out = string_a + string_b
+        match self.outputs.set_value("formatted_string", string_out):
+            case Err(e):
+                return Err(e)
+            case Ok(None):
+                pass
         return Ok(BTNodeState.SUCCEEDED)
 
     def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
@@ -98,21 +114,18 @@ class StringConcatenation(Leaf):
         return Ok(BTNodeState.SHUTDOWN)
 
     def _do_reset(self) -> Result[BTNodeState, BehaviorTreeException]:
-        self.outputs["formatted_string"] = None
-        self.outputs.reset_updated()
         return Ok(BTNodeState.IDLE)
 
 
 @define_bt_node(
     NodeConfig(
         version="0.1.0",
-        options={"format_string": str},
-        inputs={"dict": dict},
-        outputs={"formatted_string": str},
+        inputs={"format_string": StringType(), "dict": DictType()},
+        outputs={"formatted_string": StringType()},
         max_children=0,
     )
 )
-class FormatOptionNode(Leaf):
+class FormatString(Leaf):
     """
     Formats Dict to String based on option.
 
@@ -131,12 +144,25 @@ class FormatOptionNode(Leaf):
         return Ok(BTNodeState.IDLE)
 
     def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
+        match self.inputs.get_value_as("format_string", str):
+            case Err(e):
+                return Err(e)
+            case Ok(fs):
+                format_string = fs
+        match self.inputs.get_value_as("dict", dict):
+            case Err(e):
+                return Err(e)
+            case Ok(d):
+                in_dict = d
         try:
-            self.outputs["formatted_string"] = myformatter.format(
-                self.options["format_string"], **self.inputs["dict"]
-            )
+            output_string = myformatter.format(format_string, **in_dict)
         except Exception:
             return Ok(BTNodeState.FAILED)
+        match self.outputs.set_value("formatted_string", output_string):
+            case Err(e):
+                return Err(e)
+            case Ok(None):
+                pass
         return Ok(BTNodeState.SUCCEEDED)
 
     def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
@@ -146,69 +172,21 @@ class FormatOptionNode(Leaf):
         return Ok(BTNodeState.SHUTDOWN)
 
     def _do_reset(self) -> Result[BTNodeState, BehaviorTreeException]:
-        self.outputs["formatted_string"] = None
-        self.outputs.reset_updated()
         return Ok(BTNodeState.IDLE)
 
 
 @define_bt_node(
     NodeConfig(
         version="0.1.0",
-        options={},
-        inputs={"dict": dict, "format_string": str},
-        outputs={"formatted_string": str},
+        inputs={
+            "format_strings": ListType(element_type=StringType()),
+            "dict": DictType(),
+        },
+        outputs={"formatted_strings": ListType(element_type=StringType())},
         max_children=0,
     )
 )
-class FormatInputNode(Leaf):
-    """
-    Formats Dict to List based on input setting.
-
-    Accepts a dictionary and a format string as input and outputs a formatted string
-    based on the format string
-
-    Example dict and format_string:
-    dict: {'first': 'bar', 'second': 'not_printed'}
-    format_string: 'foo {first}'
-
-    results in the following output:
-    formatted_string: 'foo bar'
-    """
-
-    def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.IDLE)
-
-    def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        try:
-            self.outputs["formatted_string"] = myformatter.format(
-                self.inputs["format_string"], **self.inputs["dict"]
-            )
-        except Exception:
-            return Ok(BTNodeState.FAILED)
-        return Ok(BTNodeState.SUCCEEDED)
-
-    def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.IDLE)
-
-    def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.SHUTDOWN)
-
-    def _do_reset(self) -> Result[BTNodeState, BehaviorTreeException]:
-        self.outputs["formatted_string"] = None
-        self.outputs.reset_updated()
-        return Ok(BTNodeState.IDLE)
-
-
-@define_bt_node(
-    NodeConfig(
-        version="0.1.0",
-        options={"format_strings": list},
-        inputs={"dict": dict},
-        outputs={"formatted_strings": list},
-        max_children=0,
-    )
-)
-class FormatOptionListNode(Leaf):
+class FormatStringList(Leaf):
     """
     Formats Dict to List based on option setting.
 
@@ -227,13 +205,28 @@ class FormatOptionListNode(Leaf):
         return Ok(BTNodeState.IDLE)
 
     def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
+        match self.inputs.get_value_as("format_strings", list[str]):
+            case Err(e):
+                return Err(e)
+            case Ok(fl):
+                format_string_list = fl
+        match self.inputs.get_value_as("dict", dict):
+            case Err(e):
+                return Err(e)
+            case Ok(d):
+                in_dict = d
         try:
-            self.outputs["formatted_strings"] = [
-                myformatter.format(phrase, **self.inputs["dict"])
-                for phrase in self.options["format_strings"]
+            output_string_list = [
+                myformatter.format(format_string, **in_dict)
+                for format_string in format_string_list
             ]
         except Exception:
             return Ok(BTNodeState.FAILED)
+        match self.outputs.set_value("formatted_strings", output_string_list):
+            case Err(e):
+                return Err(e)
+            case Ok(None):
+                pass
         return Ok(BTNodeState.SUCCEEDED)
 
     def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
@@ -243,66 +236,14 @@ class FormatOptionListNode(Leaf):
         return Ok(BTNodeState.SHUTDOWN)
 
     def _do_reset(self) -> Result[BTNodeState, BehaviorTreeException]:
-        self.outputs["formatted_strings"] = None
-        self.outputs.reset_updated()
         return Ok(BTNodeState.IDLE)
 
 
 @define_bt_node(
     NodeConfig(
         version="0.1.0",
-        options={},
-        inputs={"dict": dict, "format_strings": list},
-        outputs={"formatted_strings": list},
-        max_children=0,
-    )
-)
-class FormatInputListNode(Leaf):
-    """
-    Formats Input Dict into List based on format string.
-
-    Accepts a dictionary and a list of format strings as input and
-    outputs a list of formatted strings based on the format string
-
-    Example dict and format_string:
-    dict: {'first': 'bar', 'second': 'not_printed'}
-    format_strings: ['foo {first}', 'bar {first}']
-
-    results in the following output:
-    formatted_strings: ['foo bar', 'bar bar']
-    """
-
-    def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.IDLE)
-
-    def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        try:
-            self.outputs["formatted_strings"] = [
-                myformatter.format(phrase, **self.inputs["dict"])
-                for phrase in self.inputs["format_strings"]
-            ]
-        except Exception:
-            return Ok(BTNodeState.FAILED)
-        return Ok(BTNodeState.SUCCEEDED)
-
-    def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.IDLE)
-
-    def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.SHUTDOWN)
-
-    def _do_reset(self) -> Result[BTNodeState, BehaviorTreeException]:
-        self.outputs["formatted_strings"] = None
-        self.outputs.reset_updated()
-        return Ok(BTNodeState.IDLE)
-
-
-@define_bt_node(
-    NodeConfig(
-        version="0.1.0",
-        options={},
-        inputs={"path": str},
-        outputs={"filename": str, "extension": str},
+        inputs={"path": StringType()},
+        outputs={"filename": StringType(), "extension": StringType()},
         max_children=0,
     )
 )
@@ -313,10 +254,28 @@ class GetFileExtension(Leaf):
         return Ok(BTNodeState.IDLE)
 
     def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        if self.inputs.is_updated("path"):
-            filename, extension = os.path.splitext(self.inputs["path"])
-            self.outputs["extension"] = extension
-            self.outputs["filename"] = filename
+        match self.inputs.is_updated("path"):
+            case Err(e):
+                return Err(e)
+            case Ok(b):
+                path_updated = b
+        match self.inputs.get_value_as("path", str):
+            case Err(e):
+                return Err(e)
+            case Ok(p):
+                path = p
+        if path_updated:
+            filename, extension = os.path.splitext(path)
+            match self.outputs.set_value("filename", filename):
+                case Err(e):
+                    return Err(e)
+                case Ok(None):
+                    pass
+            match self.outputs.set_value("extension", extension):
+                case Err(e):
+                    return Err(e)
+                case Ok(None):
+                    pass
         return Ok(BTNodeState.SUCCEEDED)
 
     def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:

@@ -43,6 +43,7 @@ uint8 BUILTIN_OR_ROS_TYPE=13
 uint8 REFERENCE_TYPE=14
 uint8 REFERENCE_LIST_TYPE=15
 uint8 REFERENCE_DICT_TYPE=16
+uint8 BLANK_TYPE=17
 
 
 # One of the constants given above

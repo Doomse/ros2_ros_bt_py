@@ -33,6 +33,7 @@ import json
 import re
 from types import NoneType
 from typing import Any, Generic, Optional, Self, TypeGuard, TypeVar
+import jsonpickle
 from typeguard import typechecked
 
 from ros_bt_py.ros_helpers import get_interface_name
@@ -325,7 +326,7 @@ class TypeContainerMixin(DataContainer[type]):
         raise NotImplementedError("Can't get value field for base class")
 
 
-BUILTIN = TypeVar("BUILTIN", bool, int, float, str, list, dict, bytes)
+BUILTIN = TypeVar("BUILTIN", bool, int, float, str, list, dict, bytes, object)
 
 
 class BuiltinContainer(DataContainer[BUILTIN]):
@@ -355,6 +356,59 @@ class BuiltinContainer(DataContainer[BUILTIN]):
     @typechecked
     def deserialize_value(self, ser_value: str) -> Result[None, str]:
         value = json.loads(ser_value)
+        return self.set_value(value)
+
+
+@register_io_type
+class BlankType(BuiltinContainer[object]):
+    """
+    This type holds arbitrary values and is compatible with everything
+    """
+
+    type_identifier = NodeDataType.BLANK_TYPE
+    _type = object
+
+    @typechecked
+    def __init__(
+        self,
+        allow_dynamic=True,
+        allow_static=False,
+        *args,
+        **kwargs,
+    ) -> None:
+        if allow_static:
+            raise RuntimeError("Blank types cannot be static.")
+        super().__init__(
+            allow_dynamic=allow_dynamic,
+            allow_static=allow_static,
+            *args,
+            **kwargs,
+        )
+
+    @classmethod
+    def _dict_from_msg(cls, msg: NodeDataType) -> Result[dict, str]:
+        # Nothing to add for blank
+        return super()._dict_from_msg(msg)
+
+    def is_compatible(self, other: DataContainer) -> bool:
+        # Blank accepts everything
+        return True
+
+    def serialize_type(self) -> NodeDataType:
+        # Nothing to add for blank
+        return super().serialize_type()
+
+    def _serialize_value(self, value: object) -> str:
+        pickle_str = jsonpickle.encode(value)
+        if not isinstance(pickle_str, str):
+            return str(value)
+        return pickle_str
+
+    # This is included for completion's sake
+    # Since we disallow static assignment,
+    #   we should never have to assign from a serialized value.
+    def deserialize_value(self, ser_value: str) -> Result[None, str]:
+        value = jsonpickle.decode(ser_value)
         return self.set_value(value)
 
 
@@ -630,7 +684,7 @@ class IterableContainer(BuiltinContainer[ITER]):
     @typechecked
     def __init__(
         self,
-        element_type: Optional[DataContainer],
+        element_type: Optional[DataContainer] = None,
         max_length: Optional[int] = None,
         strict_length: Optional[bool] = None,
         *args,

@@ -27,18 +27,25 @@
 # POSSIBILITY OF SUCH DAMAGE.
 
 from ros_bt_py.vendor.result import Result, Ok, Err
-from ros_bt_py.node import Leaf, Decorator, define_bt_node
-from ros_bt_py.node_config import NodeConfig, OptionRef
-from ros_bt_py.helpers import BTNodeState
+
+from ros_bt_py.data_types import (
+    BuiltinOrRosType,
+    IntType,
+    ListType,
+    ReferenceListType,
+    ReferenceType,
+)
 from ros_bt_py.exceptions import BehaviorTreeException
+from ros_bt_py.helpers import BTNodeState
+from ros_bt_py.node import Leaf, Decorator, define_bt_node
+from ros_bt_py.node_config import NodeConfig
 
 
 @define_bt_node(
     NodeConfig(
         version="0.1.0",
-        options={},
-        inputs={"list": list},
-        outputs={"length": int},
+        inputs={"list": ListType()},
+        outputs={"length": IntType()},
         max_children=0,
     )
 )
@@ -49,7 +56,16 @@ class ListLength(Leaf):
         return Ok(BTNodeState.IDLE)
 
     def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        self.outputs["length"] = len(self.inputs["list"])
+        match self.inputs.get_value_as("list", list):
+            case Err(e):
+                return Err(e)
+            case Ok(l):
+                in_list = l
+        match self.outputs.set_value("length", len(in_list)):
+            case Err(e):
+                return Err(e)
+            case Ok(None):
+                pass
         return Ok(BTNodeState.SUCCEEDED)
 
     def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
@@ -65,38 +81,13 @@ class ListLength(Leaf):
 @define_bt_node(
     NodeConfig(
         version="0.1.0",
-        options={"element_type": type, "index": int},
-        inputs={"list": list},
-        outputs={"element": OptionRef("element_type")},
-        max_children=0,
-    )
-)
-class GetListElementOption(Leaf):
-    """Return element at given index in the list."""
-
-    def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.IDLE)
-
-    def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        self.outputs["element"] = self.inputs["list"][self.options["index"]]
-        return Ok(BTNodeState.SUCCEEDED)
-
-    def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.SHUTDOWN)
-
-    def _do_reset(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.IDLE)
-
-    def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.IDLE)
-
-
-@define_bt_node(
-    NodeConfig(
-        version="0.1.0",
-        options={"element_type": type, "index": int},
-        inputs={"list": list, "element": OptionRef("element_type")},
-        outputs={"list": list},
+        inputs={
+            "element_type": BuiltinOrRosType(),
+            "index": IntType(min_value=0),
+            "list": ReferenceListType(reference="element_type"),
+            "element": ReferenceType(reference="element_type"),
+        },
+        outputs={"list": ReferenceListType(reference="element_type")},
         max_children=0,
     )
 )
@@ -107,9 +98,33 @@ class InsertInList(Leaf):
         return Ok(BTNodeState.IDLE)
 
     def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        if self.inputs.is_updated("list") or self.inputs.is_updated("element"):
-            self.outputs["list"] = list(self.inputs["list"])
-            self.outputs["list"].insert(self.options["index"], self.inputs["element"])
+        match self.inputs.is_updated("list"):
+            case Err(e):
+                return Err(e)
+            case Ok(b):
+                list_updated = b
+        match self.inputs.is_updated("element"):
+            case Err(e):
+                return Err(e)
+            case Ok(b):
+                elem_updated = b
+        match self.inputs.get_value_as("list", list):
+            case Err(e):
+                return Err(e)
+            case Ok(l):
+                in_list = l
+        match self.inputs.get_value("element"):
+            case Err(e):
+                return Err(e)
+            case Ok(e):
+                element = e
+        match self.inputs.get_value_as("index", int):
+            case Err(e):
+                return Err(e)
+            case Ok(i):
+                index = i
+        if list_updated or elem_updated:
+            in_list.insert(index, element)
         return Ok(BTNodeState.SUCCEEDED)
 
     def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
@@ -125,8 +140,11 @@ class InsertInList(Leaf):
 @define_bt_node(
     NodeConfig(
         version="0.1.0",
-        options={"compare_type": type, "list": list},
-        inputs={"in": OptionRef("compare_type")},
+        inputs={
+            "compare_type": BuiltinOrRosType(),
+            "list": ReferenceListType(reference="compare_type"),
+            "in": ReferenceType(reference="compare_type"),
+        },
         outputs={},
         max_children=0,
     )
@@ -139,40 +157,42 @@ class IsInList(Leaf):
     """
 
     def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
-        self._received_in = False
         return Ok(BTNodeState.IDLE)
 
     def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        if not self._received_in:
-            if self.inputs.is_updated("in"):
-                self._received_in = True
-
-        if self._received_in and self.inputs["in"] in self.options["list"]:
+        match self.inputs.get_value_as("list", list):
+            case Err(e):
+                return Err(e)
+            case Ok(l):
+                in_list = l
+        match self.inputs.get_value("in"):
+            case Err(e):
+                return Err(e)
+            case Ok(e):
+                element = e
+        if element in in_list:
             return Ok(BTNodeState.SUCCEEDED)
         else:
             return Ok(BTNodeState.FAILED)
 
     def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        # Nothing to do
         return Ok(BTNodeState.IDLE)
 
     def _do_reset(self) -> Result[BTNodeState, BehaviorTreeException]:
-        self.inputs.reset_updated()
-        self._received_in = False
-
         return Ok(BTNodeState.IDLE)
 
     def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
-        # Nothing to do
         return Ok(BTNodeState.SHUTDOWN)
 
 
 @define_bt_node(
     NodeConfig(
         version="0.1.0",
-        options={"item_type": type},
-        inputs={"list": list},
-        outputs={"list_item": OptionRef("item_type")},
+        inputs={
+            "item_type": BuiltinOrRosType(),
+            "list": ReferenceListType(reference="item_type"),
+        },
+        outputs={"list_item": ReferenceType(reference="item_type")},
         max_children=1,
     )
 )
@@ -189,9 +209,8 @@ class IterateList(Decorator):
 
     def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
         self.reset_counter()
-        if len(self.children) == 1:
-            result = self.children[0].setup()
-            return result
+        for child in self.children:
+            return child.setup()
         return Ok(BTNodeState.IDLE)
 
     def reset_counter(self):
@@ -199,20 +218,35 @@ class IterateList(Decorator):
         self.counter = 0
 
     def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        if self.inputs.is_updated("list"):
+        match self.inputs.is_updated("list"):
+            case Err(e):
+                return Err(e)
+            case Ok(b):
+                list_updated = b
+        if list_updated:
             self.loginfo("Input list changed - resetting iterator")
             self.reset_counter()
 
+        match self.inputs.get_value_as("list", list):
+            case Err(e):
+                return Err(e)
+            case Ok(l):
+                in_list = l
+
         # if no items in 'list' directly succeed
-        if len(self.inputs["list"]) > 0:
-            self.outputs["list_item"] = self.inputs["list"][self.counter]
+        if len(in_list) > 0:
+            match self.outputs.set_value("list_item", in_list[self.counter]):
+                case Err(e):
+                    return Err(e)
+                case Ok(None):
+                    pass
         else:
             self.loginfo("Nothing to iterate, input list is empty")
             return Ok(BTNodeState.SUCCEEDED)
 
         if len(self.children) == 0:
             self.counter += 1
-            if self.counter == len(self.inputs["list"]):
+            if self.counter == len(in_list):
                 self.reset_counter()
                 return Ok(BTNodeState.SUCCEEDED)
         else:
@@ -221,17 +255,19 @@ class IterateList(Decorator):
                 self.output_changed = False
                 return Ok(BTNodeState.RUNNING)
             for child in self.children:
-                result = child.tick()
-                if result.is_err():
-                    return result
-                if result.ok() == BTNodeState.SUCCEEDED:
+                match child.tick():
+                    case Err(e):
+                        return Err(e)
+                    case Ok(s):
+                        child_state = s
+                if child_state == BTNodeState.SUCCEEDED:
                     # we only increment the counter when the child succeeded
                     self.counter += 1
                     self.output_changed = True
-                    if self.counter == len(self.inputs["list"]):
+                    if self.counter == len(in_list):
                         self.reset_counter()
                         return Ok(BTNodeState.SUCCEEDED)
-                elif result.ok() == BTNodeState.FAILED:
+                elif child_state == BTNodeState.FAILED:
                     # child failed: we failed
                     return Ok(BTNodeState.FAILED)
         return Ok(BTNodeState.RUNNING)
@@ -242,7 +278,6 @@ class IterateList(Decorator):
         return Ok(BTNodeState.IDLE)
 
     def _do_reset(self) -> Result[BTNodeState, BehaviorTreeException]:
-        self.inputs.reset_updated()
         self.reset_counter()
         for child in self.children:
             return child.reset()

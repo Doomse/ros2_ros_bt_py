@@ -54,6 +54,10 @@ class NodeDataMap:
             return Err(NodeConfigError(f"Key {key} does not exist in {self.name}"))
         return Ok(self.data[key])
 
+
+@typechecked
+class NodeInputMap(NodeDataMap):
+
     def get_value(self, key: str) -> Result[Any, NodeConfigError]:
         match self._get_item(key):
             case Err(e):
@@ -93,6 +97,10 @@ class NodeDataMap:
             case Ok(c):
                 container = c
         return Ok(container.is_updated())
+
+
+@typechecked
+class NodeOutputMap(NodeDataMap):
 
     def set_value(self, key: str, value: Any) -> Result[None, NodeConfigError]:
         match self._get_item(key):

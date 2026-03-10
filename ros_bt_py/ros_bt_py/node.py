@@ -28,7 +28,6 @@
 """Module defining the Node class and helper functions representing a node in the behavior tree."""
 
 from contextlib import contextmanager
-from copy import deepcopy
 import inspect
 from types import ModuleType
 from typeguard import typechecked
@@ -81,7 +80,7 @@ from ros_bt_py.exceptions import (
     NodeConfigError,
     TreeTopologyError,
 )
-from ros_bt_py.node_config import NodeConfig, NodeDataMap
+from ros_bt_py.node_config import NodeConfig, NodeInputMap, NodeOutputMap
 from ros_bt_py.helpers import BTNodeState
 from ros_bt_py.ros_helpers import ros_to_uuid, uuid_to_ros
 
@@ -344,8 +343,8 @@ class Node(object, metaclass=NodeMeta):
                 case Ok(None):
                     pass
 
-        self.inputs = NodeDataMap(f"{self.name}.inputs", self.node_config.inputs)
-        self.outputs = NodeDataMap(f"{self.name}.outputs", self.node_config.outputs)
+        self.inputs = NodeInputMap(f"{self.name}.inputs", self.node_config.inputs)
+        self.outputs = NodeOutputMap(f"{self.name}.outputs", self.node_config.outputs)
 
         # Don't setup automatically - nodes should be available as pure data
         # containers before the user decides to call setup() themselves!
@@ -431,6 +430,10 @@ class Node(object, metaclass=NodeMeta):
                         f"but node {self.name} is in state {self.state}"
                     )
                 )
+
+            # Reset input/output reset state and set outputs to None
+            for container in self.node_config.inputs.values():
+                container.reset_updated()
 
             for container in self.node_config.outputs.values():
                 container.reset_value()
@@ -629,8 +632,6 @@ class Node(object, metaclass=NodeMeta):
                 return Err(BehaviorTreeException("Trying to reset shutdown node!"))
 
             # Reset input/output reset state and set outputs to None
-            # before calling _do_reset() - the node can overwrite the None
-            # with more appropriate values if need be.
             for container in self.node_config.inputs.values():
                 container.reset_updated()
 
@@ -1449,14 +1450,4 @@ class FlowControl(Node):
     Flow control nodes (mostly Sequence, Fallback and their derivatives)
     can have an unlimited number of children and each have a unique set
     of rules for when to tick which of their children.
-    """
-
-
-@define_bt_node(NodeConfig(inputs={}, outputs={}, max_children=0))
-class IO(Node):
-    """
-    Base class for IO nodes in the tree.
-
-    IO nodes have no children. Subclasses can define inputs and outputs,
-    but never change `max_children`.
     """
