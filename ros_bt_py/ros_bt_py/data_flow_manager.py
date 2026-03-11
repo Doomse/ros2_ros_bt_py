@@ -25,14 +25,16 @@
 # CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
-from typing import NamedTuple
+from typing import TYPE_CHECKING, NamedTuple
 import uuid
 
 from ros_bt_py.ros_helpers import ros_to_uuid
 from ros_bt_py.vendor.result.result import Result, Ok, Err
 
 from ros_bt_py.data_types import DataContainer
-from ros_bt_py.node import Node
+
+if TYPE_CHECKING:
+    from ros_bt_py.node import Node
 
 from ros_bt_py_interfaces.msg import Wiring
 
@@ -65,7 +67,7 @@ class DataFlowManager:
     Keys that cannot be matched are silently ignored, so passing extra is safe.
     """
 
-    nodes: dict[uuid.UUID, Node]
+    nodes: dict[uuid.UUID, "Node"]
     connections: dict[uuid.UUID, list[Connection]]
     incoming_data: dict[str, DataContainer]
     outgoing_data: dict[str, DataContainer]
@@ -80,7 +82,7 @@ class DataFlowManager:
 
     def initialize(
         self,
-        nodes: dict[uuid.UUID, Node],
+        nodes: dict[uuid.UUID, "Node"],
         wirings: list[Wiring],
     ) -> Result[None, str]:
         self.nodes = nodes
@@ -115,22 +117,28 @@ class DataFlowManager:
             return Err(f"Source node id {node_id} is not available")
         for connection in connections:
             try:
-                if not source_node.outputs[connection.source_key].is_updated():
+                if not source_node.node_config.outputs[
+                    connection.source_key
+                ].is_updated():
                     continue
-                match source_node.outputs[connection.source_key].get_value():
+                match source_node.node_config.outputs[
+                    connection.source_key
+                ].get_value():
                     case Err(None):
                         continue
                     case Ok(v):
                         value = v
                 target_node = self.nodes[connection.target_id]
-                match target_node.inputs[connection.target_key].set_value(value):
+                match target_node.node_config.inputs[connection.target_key].set_value(
+                    value
+                ):
                     case Err(e):
                         return Err(e)
                     case Ok(None):
                         pass
             except KeyError:
                 return Err(f"Connection {connection} is invalid")
-        for key, container in source_node.outputs.items():
+        for key, container in source_node.node_config.outputs.items():
             if not container.is_updated():
                 continue
             outgoing_key = f"{node_id}.{key}"
@@ -164,7 +172,7 @@ class DataFlowManager:
                 continue
             try:
                 target_node = self.nodes[node_id]
-                match target_node.inputs[data_key].set_value(value):
+                match target_node.node_config.inputs[data_key].set_value(value):
                     case Err(e):
                         return Err(e)
                     case Ok(None):

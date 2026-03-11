@@ -31,7 +31,6 @@ from importlib import import_module
 from inspect import getmodule
 import json
 import re
-from types import NoneType
 from typing import Any, Generic, Optional, Self, TypeGuard, TypeVar
 import jsonpickle
 from typeguard import typechecked
@@ -1343,51 +1342,69 @@ class RosComponentType(RosTypeContainer):
 
 class BuiltinOrRosType(TypeContainerMixin, DataContainer[type]):
     """
-    This acts as a placeholder for type fields that can be filled by both a
-    `BuiltinType` or a `RosTopicType`.
-    This is not a functional type, any provided values are discarded immediately.
+    This acts as a either a `BuiltinType` or a `RosTopicType`,
+    depending on whether `ros_interface_kind` is set to `ROS_UNDEFINED` or `ROS_TOPIC`.
     Note that this doesn't support the restrictions that can be placed on `BuiltinType`.
     It is expected that this is replaced with either of the above
     when a node is fully configured.
     """
 
     type_identifier = NodeDataType.BUILTIN_OR_ROS_TYPE
+    _inner_type: BuiltinType | RosTopicType
+
+    @typechecked
+    def __init__(self, is_builtin=True, *args, **kwargs) -> None:
+        if is_builtin:
+            self._inner_type = BuiltinType(*args, **kwargs)
+        else:
+            self._inner_type = RosTopicType(*args, **kwargs)
+        super().__init__(*args, **kwargs)
 
     @classmethod
     @typechecked
     def _dict_from_msg(cls, msg: NodeDataType) -> Result[dict, str]:
-        return Err("Placeholder cannot be constructed from message")
+        match super()._dict_from_msg(msg):
+            case Err(e):
+                return Err(e)
+            case Ok(c):
+                config = c
+        config["is_builtin"] = msg.ros_interface_kind == NodeDataType.ROS_UNDEFINED
+        return Ok(config)
 
     @typechecked
     def set_value(self, value: type) -> Result[None, str]:
-        return Err("Placeholder does not accept values")
+        return self._inner_type.set_value(value)
+
+    def get_value(self) -> Result[type, None]:
+        return self._inner_type.get_value()
 
     @typechecked
-    def is_compatible(self, other: DataContainer) -> bool:
-        if isinstance(other, BuiltinType):
-            return True
-        if isinstance(other, RosTopicType):
-            return True
-        return False
+    def is_compatible(self, other: DataContainer) -> TypeGuard[Self]:
+        return super().is_compatible(other)
 
     def serialize_type(self) -> NodeDataType:
-        return super().serialize_type()
+        type_msg = super().serialize_type()
+        if isinstance(self._inner_type, RosTopicType):
+            type_msg.ros_interface_kind = NodeDataType.ROS_TOPIC
+        else:
+            type_msg.ros_interface_kind = NodeDataType.ROS_UNDEFINED
+        return type_msg
 
     @typechecked
     def _serialize_value(self, value: type) -> str:
-        return ""
+        return self._inner_type._serialize_value(value)
 
     @typechecked
     def deserialize_value(self, ser_value: str) -> Result[None, str]:
-        return Err("Placeholder does not accept values")
+        return self._inner_type.deserialize_value(ser_value)
 
     @typechecked
     def get_value_field(self) -> Result[type[DataContainer], None]:
-        return Err(None)
+        return self._inner_type.get_value_field()
 
 
 class ReferenceContainer(DataContainer[Any]):
-    _value: NoneType = None
+    _value: None = None
     _reference: str
     _container_map: dict[str, DataContainer[Any]] = {}
     _inner_type: Optional[DataContainer[Any]] = None

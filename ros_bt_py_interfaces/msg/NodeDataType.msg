@@ -78,6 +78,7 @@ bool[] iterable_strict_length
 # If this type references another IO field, this contains the key for that field
 string reference_target
 
+uint8 ROS_UNDEFINED=0
 uint8 ROS_TOPIC=1
 uint8 ROS_SERVICE=2
 uint8 ROS_ACTION=3

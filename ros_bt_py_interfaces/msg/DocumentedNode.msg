@@ -37,7 +37,6 @@ string version
 int32 max_children
 
 ## These are run-time parameters
-NodeOption[] options
 NodeIO[] inputs
 NodeIO[] outputs
 

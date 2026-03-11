@@ -45,7 +45,6 @@ import rosidl_runtime_py.utilities
 from ros_bt_py_interfaces.msg import (
     DocumentedNode,
     NodeIO,
-    NodeOption,
     MessageTypes,
     Package,
     Packages,
@@ -61,7 +60,6 @@ from ros_bt_py_interfaces.srv import (
 )
 
 from ros_bt_py.node import Node, load_node_module, increment_name
-from ros_bt_py.node_config import OptionRef
 from ros_bt_py.helpers import json_encode, build_message_field_dicts
 from ros_bt_py.ros_helpers import get_message_constant_fields
 
@@ -410,19 +408,6 @@ class PackageManager(object):
                 response.error_message = f"Failed to import module {module_name}"
                 return response
 
-        @typechecked
-        def to_node_io(data_map: dict[str, type | OptionRef]) -> List[NodeIO]:
-            return [
-                NodeIO(key=name, serialized_type=json_encode(type_or_ref))
-                for (name, type_or_ref) in data_map.items()
-            ]
-
-        def to_node_option(data_map):
-            return [
-                NodeOption(key=name, serialized_type=json_encode(type_or_ref))
-                for (name, type_or_ref) in data_map.items()
-            ]
-
         response.available_nodes = []
         for module, nodes in Node.node_classes.items():
             for class_name, node_classes in nodes.items():
@@ -441,9 +426,21 @@ class PackageManager(object):
                             node_class=class_name,
                             version=node_class._node_config.version,
                             max_children=max_children,
-                            options=to_node_option(node_class._node_config.options),
-                            inputs=to_node_io(node_class._node_config.inputs),
-                            outputs=to_node_io(node_class._node_config.outputs),
+                            inputs=[
+                                NodeIO(
+                                    key=key,
+                                    type=cont.serialize_type(),
+                                    serialized_value=cont.serialize_value(),
+                                )
+                                for key, cont in node_class._node_config.inputs.items()
+                            ],
+                            outputs=[
+                                NodeIO(
+                                    key=key,
+                                    type=cont.serialize_type(),
+                                )
+                                for key, cont in node_class._node_config.outputs.items()
+                            ],
                             doc=str(doc),
                             tags=node_class._node_config.tags,
                         )
