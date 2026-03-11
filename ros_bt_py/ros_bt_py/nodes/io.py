@@ -65,14 +65,12 @@ class IO(Leaf):
         return Ok(BTNodeState.IDLE)
 
     def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        match self.inputs.get_value("in").or_else(
-            lambda _: self.inputs.get_value("default")
-        ).and_then(lambda val: self.outputs.set_value("out", val)):
-            case Err(e):
-                return Err(e)
-            case Ok(None):
-                pass
-        return Ok(BTNodeState.SUCCEEDED)
+        return (
+            self.inputs.get_value("in")
+            .or_else(lambda _: self.inputs.get_value("default"))
+            .and_then(lambda val: self.outputs.set_value("out", val))
+            .and_then(lambda _: Ok(BTNodeState.SUCCEEDED))
+        )
 
     def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
         return Ok(BTNodeState.IDLE)

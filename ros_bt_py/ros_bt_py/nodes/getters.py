@@ -59,24 +59,20 @@ from ros_bt_py.node_config import NodeConfig
 class Getter(Decorator):
 
     def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
-        if len(self.children) == 1:
-            match self.children[0].setup():
-                case Err(e):
-                    return Err(e)
-                case Ok(_):
-                    pass
         match self.inputs.get_value_as("succeed_on_stale_data", bool):
             case Err(e):
                 return Err(e)
             case Ok(b):
                 self.succeed_on_stale_data = b
+        for child in self.children:
+            return child.setup()
         return Ok(BTNodeState.IDLE)
 
     @abc.abstractmethod
     def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
         # Tick child (if any) so it can produce its output before we process it
-        if len(self.children) == 1:
-            return self.children[0].tick()
+        for child in self.children:
+            return child.tick()
         return Ok(BTNodeState.SUCCEEDED)
         # Subclasses have to implement their own `_do_tick` methods to do the actual work
 
@@ -84,13 +80,13 @@ class Getter(Decorator):
         return Ok(BTNodeState.SHUTDOWN)
 
     def _do_reset(self) -> Result[BTNodeState, BehaviorTreeException]:
-        if len(self.children) == 1:
-            return self.children[0].reset()
+        for child in self.children:
+            return child.reset()
         return Ok(BTNodeState.IDLE)
 
     def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        if len(self.children) == 1:
-            return self.children[0].untick()
+        for child in self.children:
+            return child.untick()
         return Ok(BTNodeState.IDLE)
 
 
@@ -146,11 +142,9 @@ class GetListItem(Getter):
             return Ok(BTNodeState.FAILED)
 
         if updated:
-            match self.outputs.set_value("item", out):
-                case Err(e):
-                    return Err(e)
-                case Ok(None):
-                    return Ok(BTNodeState.SUCCEEDED)
+            return self.outputs.set_value("item", out).and_then(
+                lambda _: Ok(BTNodeState.SUCCEEDED)
+            )
         else:
             if self.succeed_on_stale_data:
                 # We don't need to check whether we have gotten any data at all,
@@ -206,11 +200,9 @@ class GetDictItem(Getter):
             return Ok(BTNodeState.FAILED)
 
         if updated:
-            match self.outputs.set_value("value", out):
-                case Err(e):
-                    return Err(e)
-                case Ok(None):
-                    return Ok(BTNodeState.SUCCEEDED)
+            return self.outputs.set_value("value", out).and_then(
+                lambda _: Ok(BTNodeState.SUCCEEDED)
+            )
         else:
             if self.succeed_on_stale_data:
                 # We don't need to check whether we have gotten any data at all,
@@ -266,11 +258,9 @@ class GetMultipleDictItems(Getter):
             return Ok(BTNodeState.FAILED)
 
         if updated:
-            match self.outputs.set_value("values", out_list):
-                case Err(e):
-                    return Err(e)
-                case Ok(None):
-                    return Ok(BTNodeState.SUCCEEDED)
+            return self.outputs.set_value("values", out_list).and_then(
+                lambda _: Ok(BTNodeState.SUCCEEDED)
+            )
         else:
             if self.succeed_on_stale_data:
                 # We don't need to check whether we have gotten any data at all,
@@ -334,11 +324,9 @@ class GetAttr(Getter):
             return Ok(BTNodeState.FAILED)
 
         if updated:
-            match self.outputs.set_value("attr", out):
-                case Err(e):
-                    return Err(e)
-                case Ok(None):
-                    return Ok(BTNodeState.SUCCEEDED)
+            return self.outputs.set_value("attr", out).and_then(
+                lambda _: Ok(BTNodeState.SUCCEEDED)
+            )
         else:
             if self.succeed_on_stale_data:
                 # We don't need to check whether we have gotten any data at all,

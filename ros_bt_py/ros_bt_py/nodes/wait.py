@@ -29,17 +29,17 @@ from time import time
 
 from ros_bt_py.vendor.result import Result, Ok, Err
 
+from ros_bt_py.data_types import FloatType
+from ros_bt_py.exceptions import BehaviorTreeException
+from ros_bt_py.helpers import BTNodeState
 from ros_bt_py.node import Leaf, define_bt_node
 from ros_bt_py.node_config import NodeConfig
-from ros_bt_py.helpers import BTNodeState
-from ros_bt_py.exceptions import BehaviorTreeException
 
 
 @define_bt_node(
     NodeConfig(
         version="0.1.0",
-        options={"seconds_to_wait": float},
-        inputs={},
+        inputs={"seconds_to_wait": FloatType(min_value=0)},
         outputs={},
         max_children=0,
     )
@@ -50,7 +50,7 @@ class Wait(Leaf):
 
     This is naturally not extremely precise because it depends on the tick interval
 
-    If `seconds_to_wait` is 0 or negative, the node will immediately succeed
+    If `seconds_to_wait` is 0, the node will immediately succeed
     """
 
     def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
@@ -61,52 +61,13 @@ class Wait(Leaf):
         now = time()
         if self.first_tick:
             self.start_time = now
-            self.end_time = self.start_time + self.options["seconds_to_wait"]
-            self.first_tick = False
-        if now >= self.end_time:
-            return Ok(BTNodeState.SUCCEEDED)
-        else:
-            return Ok(BTNodeState.RUNNING)
-
-    def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
-        self.first_tick = True
-        return Ok(BTNodeState.SHUTDOWN)
-
-    def _do_reset(self) -> Result[BTNodeState, BehaviorTreeException]:
-        self.first_tick = True
-        return Ok(BTNodeState.IDLE)
-
-    def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.IDLE)
-
-
-@define_bt_node(
-    NodeConfig(
-        version="0.1.0",
-        options={},
-        inputs={"seconds_to_wait": float},
-        outputs={},
-        max_children=0,
-    )
-)
-class WaitInput(Leaf):
-    """
-    Returns "RUNNING" until at least the specified amount of seconds are elapsed.
-
-    This is naturally not extremely precise because it depends on the tick interval
-
-    If `seconds_to_wait` is 0 or negative, the node will immediately succeed
-    """
-
-    def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
-        self.first_tick = True
-        return Ok(BTNodeState.IDLE)
-
-    def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        now = time()
-        if self.first_tick:
-            self.start_time = now
-            self.end_time = self.start_time + self.inputs["seconds_to_wait"]
+            match self.inputs.get_value_as("seconds_to_wait", float).and_then(
+                lambda val: Ok(self.start_time + val)
+            ):
+                case Err(e):
+                    return Err(e)
+                case Ok(t):
+                    self.end_time = t
             self.first_tick = False
         if now >= self.end_time:
             return Ok(BTNodeState.SUCCEEDED)

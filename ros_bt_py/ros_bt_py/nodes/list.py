@@ -56,14 +56,11 @@ class ListLength(Leaf):
         return Ok(BTNodeState.IDLE)
 
     def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        match self.inputs.get_value_as("list", list).and_then(
-            lambda li: self.outputs.set_value("length", len(li))
-        ):
-            case Err(e):
-                return Err(e)
-            case Ok(None):
-                pass
-        return Ok(BTNodeState.SUCCEEDED)
+        return (
+            self.inputs.get_value_as("list", list)
+            .and_then(lambda li: self.outputs.set_value("length", len(li)))
+            .and_then(lambda _: Ok(BTNodeState.SUCCEEDED))
+        )
 
     def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
         return Ok(BTNodeState.SHUTDOWN)
@@ -113,11 +110,9 @@ class InsertInList(Leaf):
                 out_list = l
 
         if updated:
-            match self.outputs.set_value("list", out_list):
-                case Err(e):
-                    return Err(e)
-                case Ok(None):
-                    pass
+            return self.outputs.set_value("list", out_list).and_then(
+                lambda _: Ok(BTNodeState.SUCCEEDED)
+            )
         return Ok(BTNodeState.SUCCEEDED)
 
     def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
@@ -153,19 +148,11 @@ class IsInList(Leaf):
         return Ok(BTNodeState.IDLE)
 
     def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        match do(
+        return do(
             Ok(e in li)
             for e in self.inputs.get_value("in")
             for li in self.inputs.get_value_as("list", list)
-        ):
-            case Err(e):
-                return Err(e)
-            case Ok(r):
-                result = r
-        if result:
-            return Ok(BTNodeState.SUCCEEDED)
-        else:
-            return Ok(BTNodeState.FAILED)
+        ).and_then(lambda res: Ok(BTNodeState.SUCCEEDED if res else BTNodeState.FAILED))
 
     def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
         return Ok(BTNodeState.IDLE)

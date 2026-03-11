@@ -59,19 +59,11 @@ class Compare(Leaf):
         return Ok(BTNodeState.IDLE)
 
     def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        match do(
+        return do(
             Ok(a == b)
             for a in self.inputs.get_value("a")
             for b in self.inputs.get_value("b")
-        ):
-            case Err(e):
-                return Err(e)
-            case Ok(r):
-                result = r
-
-        if result:
-            return Ok(BTNodeState.SUCCEEDED)
-        return Ok(BTNodeState.FAILED)
+        ).and_then(lambda res: Ok(BTNodeState.SUCCEEDED if res else BTNodeState.FAILED))
 
     def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
         # Nothing to do
@@ -116,19 +108,11 @@ class CompareNewOnly(Leaf):
         if not updated:
             return Ok(BTNodeState.RUNNING)
 
-        match do(
+        return do(
             Ok(a == b)
             for a in self.inputs.get_value("a")
             for b in self.inputs.get_value("b")
-        ):
-            case Err(e):
-                return Err(e)
-            case Ok(r):
-                result = r
-
-        if result:
-            return Ok(BTNodeState.SUCCEEDED)
-        return Ok(BTNodeState.FAILED)
+        ).and_then(lambda res: Ok(BTNodeState.SUCCEEDED if res else BTNodeState.FAILED))
 
     def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
         # Nothing to do
@@ -170,19 +154,11 @@ class ALessThanB(Leaf):
         return Ok(BTNodeState.IDLE)
 
     def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        match do(
+        return do(
             Ok(a < b)
             for a in self.inputs.get_value("a")
             for b in self.inputs.get_value("b")
-        ):
-            case Err(e):
-                return Err(e)
-            case Ok(r):
-                result = r
-
-        if result:
-            return Ok(BTNodeState.SUCCEEDED)
-        return Ok(BTNodeState.FAILED)
+        ).and_then(lambda res: Ok(BTNodeState.SUCCEEDED if res else BTNodeState.FAILED))
 
     def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
         # Nothing to do
