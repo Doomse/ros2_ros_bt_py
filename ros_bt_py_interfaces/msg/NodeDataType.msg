@@ -60,11 +60,10 @@ bool is_static
 
 string[] serialized_value_options
 
-int64 int_min_value
-int64 int_max_value
-
-float64 float_min_value
-float64 float_max_value
+# This is only set for numeric types (int and float) but is passed as a string
+#   to avoid issues with limited precision
+string min_value
+string max_value
 
 uint64 string_max_length
 # If strict_length, the maximum has to be matched exactly

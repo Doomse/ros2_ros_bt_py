@@ -54,7 +54,6 @@ from ros_bt_py.debug_manager import DebugManager
 from ros_bt_py.exceptions import BehaviorTreeException
 from ros_bt_py.helpers import (
     BTNodeState,
-    json_decode,
 )
 from ros_bt_py.ros_helpers import ros_to_uuid, uuid_to_ros
 

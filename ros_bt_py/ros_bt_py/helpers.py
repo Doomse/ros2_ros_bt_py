@@ -70,24 +70,22 @@ BTNodeState.register(str)
 # Register `str` as subclass to `BTNodeState` for the purpose of typeguard
 
 
-class MathUnaryOperator(object):
-    def __init__(self, operator="sqrt"):
-        self.operator = operator
+INT_LIMITS = {
+    "int8": (-(2**7), 2**7 - 1),
+    "int16": (-(2**15), 2**15 - 1),
+    "int32": (-(2**31), 2**31 - 1),
+    "int64": (-(2**63), 2**63 - 1),
+    "uint8": (0, 2**8 - 1),
+    "uint16": (0, 2**16 - 1),
+    "uint32": (0, 2**32 - 1),
+    "uint64": (0, 2**64 - 1),
+}
 
 
-class MathBinaryOperator(object):
-    def __init__(self, operator="+"):
-        self.operator = operator
-
-
-class MathOperandType(object):
-    def __init__(self, operand_type="float"):
-        self.operand_type = operand_type
-
-
-class MathUnaryOperandType(object):
-    def __init__(self, operand_type="float"):
-        self.operand_type = operand_type
+FLOAT_LIMITS = {
+    "float32": (-3.4028235e38, 3.4028235e38),
+    "float64": (-1.7976931348623157e308, 1.7976931348623157e308),
+}
 
 
 # handling nested objects,
@@ -131,16 +129,6 @@ def get_default_value(data_type: Any, ros: bool = False) -> Any:
         return data_type()
     else:
         return {}
-
-
-def json_encode(data: Any) -> Optional[str]:
-    """Wrap the call to jsonpickle.encode."""
-    return jsonpickle.encode(data)
-
-
-def json_decode(data: str) -> Optional[Any]:
-    """Wrap the call to jsonpickle.decode."""
-    return jsonpickle.decode(data)
 
 
 def build_message_field_dicts(message_object: Any) -> tuple[dict, dict]:
@@ -292,55 +280,3 @@ def get_field_values_and_types(
         "max_length": max_len,
         "is_static": False,
     }
-
-
-class HashableCapabilityInterface:
-    """Wrapper class to allow for the hashing of capability interfaces."""
-
-    def __init__(self, interface: CapabilityInterface):
-        self.interface: CapabilityInterface = interface
-
-    def __eq__(self, other: object) -> bool:
-        def compare_node_data_lists(list1: Iterable, list2: Iterable) -> bool:
-            l1_node_data = {(x.key, json_decode(x.serialized_type)) for x in list1}
-            l2_node_data = {(x.key, json_decode(x.serialized_type)) for x in list2}
-
-            return l1_node_data == l2_node_data
-
-        if not isinstance(other, HashableCapabilityInterface):
-            return False
-
-        return (
-            (self.interface.name == other.interface.name)
-            and compare_node_data_lists(self.interface.inputs, other.interface.inputs)
-            and compare_node_data_lists(self.interface.outputs, other.interface.outputs)
-            and compare_node_data_lists(self.interface.options, other.interface.options)
-        )
-
-    def __ne__(self, other: object) -> bool:
-        return not self.__eq__(other)
-
-    def __hash__(self) -> int:
-        return hash(
-            (
-                self.interface.name,
-                frozenset(
-                    {
-                        (x.key, json_decode(x.serialized_type))
-                        for x in self.interface.inputs
-                    }
-                ),
-                frozenset(
-                    {
-                        (x.key, json_decode(x.serialized_type))
-                        for x in self.interface.outputs
-                    }
-                ),
-                frozenset(
-                    {
-                        (x.key, json_decode(x.serialized_type))
-                        for x in self.interface.options
-                    }
-                ),
-            )
-        )

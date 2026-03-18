@@ -35,6 +35,7 @@ from typing import Any, Generic, Optional, Self, TypeGuard, TypeVar
 import jsonpickle
 from typeguard import typechecked
 
+from ros_bt_py.helpers import INT_LIMITS, FLOAT_LIMITS
 from ros_bt_py.ros_helpers import get_interface_name
 
 import rosidl_runtime_py
@@ -466,7 +467,19 @@ class NumericContainer(BuiltinContainer[NUM]):
         self.min_value = min_value if min_value else self.lower_limit
         self.max_value = max_value if max_value else self.upper_limit
 
+        if self.min_value > self.max_value:
+            raise RuntimeError(
+                f"Given minimum {self.min_value} is larger than maximum {self.max_value}"
+            )
+
         super().__init__(*args, **kwargs)
+
+        if self.is_static and not self.is_updated():
+            # Check boundaries and adjust automatic default
+            if self.min_value > 0:
+                self._value = self.min_value
+            if self.max_value < 0:
+                self._value = self.max_value
 
     @typechecked
     def set_value(self, value: NUM) -> Result[None, str]:
@@ -485,6 +498,12 @@ class NumericContainer(BuiltinContainer[NUM]):
             return False
         return True
 
+    def serialize_type(self) -> NodeDataType:
+        type_msg = super().serialize_type()
+        type_msg.min_value = str(self.min_value)
+        type_msg.max_value = str(self.max_value)
+        return type_msg
+
 
 @register_io_type
 class IntType(NumericContainer[int]):
@@ -496,8 +515,7 @@ class IntType(NumericContainer[int]):
     type_identifier = NodeDataType.INT_TYPE
     _type = int
     _value = 0
-    lower_limit = -(2**63)
-    upper_limit = 2**63 - 1
+    lower_limit, upper_limit = INT_LIMITS["int64"]
 
     @classmethod
     def _dict_from_msg(cls, msg: NodeDataType) -> Result[dict, str]:
@@ -506,15 +524,9 @@ class IntType(NumericContainer[int]):
                 return Err(e)
             case Ok(c):
                 config = c
-        config["min_value"] = msg.int_min_value
-        config["max_value"] = msg.int_max_value
+        config["min_value"] = int(msg.min_value)
+        config["max_value"] = int(msg.max_value)
         return Ok(config)
-
-    def serialize_type(self) -> NodeDataType:
-        type_msg = super().serialize_type()
-        type_msg.int_min_value = self.min_value
-        type_msg.int_max_value = self.max_value
-        return type_msg
 
 
 @register_io_type
@@ -526,8 +538,7 @@ class FloatType(NumericContainer[float]):
 
     type_identifier = NodeDataType.FLOAT_TYPE
     _type = float
-    lower_limit = -1.7976931348623158e308
-    upper_limit = 1.7976931348623158e308
+    lower_limit, upper_limit = FLOAT_LIMITS["float64"]
 
     @classmethod
     def _dict_from_msg(cls, msg: NodeDataType) -> Result[dict, str]:
@@ -536,8 +547,8 @@ class FloatType(NumericContainer[float]):
                 return Err(e)
             case Ok(c):
                 config = c
-        config["min_value"] = msg.float_min_value
-        config["max_value"] = msg.float_max_value
+        config["min_value"] = float(msg.min_value)
+        config["max_value"] = float(msg.max_value)
         return Ok(config)
 
     def set_value(self, value: float | int) -> Result[None, str]:
@@ -545,12 +556,6 @@ class FloatType(NumericContainer[float]):
         if isinstance(value, int):
             value = float(value)
         return super().set_value(value)
-
-    def serialize_type(self) -> NodeDataType:
-        type_msg = super().serialize_type()
-        type_msg.float_min_value = self.min_value
-        type_msg.float_max_value = self.max_value
-        return type_msg
 
 
 STRING = TypeVar("STRING", str, bytes)
@@ -770,16 +775,11 @@ class IterableContainer(BuiltinContainer[ITER]):
         inner_type_msg = self._element_type.serialize_type()
         inner_type_msg.allow_dynamic = type_msg.allow_dynamic
         inner_type_msg.allow_static = type_msg.allow_static
-        inner_type_msg.value_type_identifier = [inner_type_msg.type_identifier].extend(
-            inner_type_msg.value_type_identifier
-        )
+        inner_type_msg.is_static = type_msg.is_static
+        inner_type_msg.value_type_identifier.append(inner_type_msg.type_identifier)
         inner_type_msg.type_identifier = type_msg.type_identifier
-        inner_type_msg.iterable_max_length = [self.max_length].extend(
-            inner_type_msg.iterable_max_length
-        )
-        inner_type_msg.iterable_strict_length = [self.strict_length].extend(
-            inner_type_msg.iterable_strict_length
-        )
+        inner_type_msg.iterable_max_length.append(self.max_length)
+        inner_type_msg.iterable_strict_length.append(self.strict_length)  # type: ignore
         return inner_type_msg
 
     @abc.abstractmethod
@@ -1505,8 +1505,11 @@ class ReferenceContainer(DataContainer[Any]):
             return None
         return self._inner_type.reset_updated()
 
-    @typechecked
     def _serialize_value(self, value: None) -> str:
+        raise RuntimeError("This should never be called on a reference")
+
+    @typechecked
+    def serialize_value(self) -> str:
         if self._inner_type is None:
             return ""
         return self._inner_type.serialize_value()

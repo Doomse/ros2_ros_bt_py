@@ -60,7 +60,7 @@ from ros_bt_py_interfaces.srv import (
 )
 
 from ros_bt_py.node import Node, load_node_module, increment_name
-from ros_bt_py.helpers import json_encode, build_message_field_dicts
+from ros_bt_py.helpers import build_message_field_dicts
 from ros_bt_py.ros_helpers import get_message_constant_fields
 
 
@@ -341,7 +341,7 @@ class PackageManager(object):
             )
 
             response.success = True
-            response.package_structure = json_encode(package_structure)
+            response.package_structure = json.dumps(package_structure)
         except PackageNotFoundError:
             response.success = False
             response.error_message = f'Package "{request.package}" does not exist'
@@ -372,7 +372,7 @@ class PackageManager(object):
         )
 
         response.success = True
-        response.storage_folder_structure = json_encode(package_structure)
+        response.storage_folder_structure = json.dumps(package_structure)
 
         return response
 
