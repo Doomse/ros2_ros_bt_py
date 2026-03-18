@@ -68,7 +68,6 @@ from ros_bt_py.data_flow_manager import DataFlowManager
 from ros_bt_py.data_types import (
     DataContainer,
     ReferenceContainer,
-    get_iotype_for_type,
     get_iotype_for_msg,
 )
 from ros_bt_py.debug_manager import DebugManager
@@ -101,23 +100,6 @@ def _check_node_data_match(
         if not value.is_compatible(container):
             return False
     return True
-
-
-@typechecked
-def _map_types_to_containers(
-    input_dict: dict[str, type | DataContainer],
-) -> Result[dict[str, DataContainer], str]:
-    output_dict = {}
-    for key, type_or_cont in input_dict.items():
-        if isinstance(type_or_cont, DataContainer):
-            output_dict[key] = type_or_cont
-            continue
-        match get_iotype_for_type(type_or_cont):
-            case Err(e):
-                return Err(f"Cannot map extra output {key} of type {type_or_cont}: {e}")
-            case Ok(c):
-                output_dict[key] = c()
-    return Ok(output_dict)
 
 
 class NodeMeta(abc.ABCMeta):
@@ -284,21 +266,9 @@ class Node(object, metaclass=NodeMeta):
                 )
             self.node_config.inputs[key] = container
 
-        match _map_types_to_containers(self.add_extra_inputs()):
-            case Err(e):
-                raise NodeConfigError(e)
-            case Ok(d):
-                extra_node_inputs = d
-
-        match _map_types_to_containers(self.add_extra_outputs()):
-            case Err(e):
-                raise NodeConfigError(e)
-            case Ok(d):
-                extra_node_outputs = d
-
         extra_node_config = NodeConfig(
-            inputs=extra_node_inputs,
-            outputs=extra_node_outputs,
+            inputs=self.add_extra_inputs(),
+            outputs=self.add_extra_outputs(),
             max_children=self.node_config.max_children,
         )
 
@@ -387,14 +357,14 @@ class Node(object, metaclass=NodeMeta):
     def get_logger(self) -> Optional[LoggingManager]:
         return self.logging_manager
 
-    def add_extra_inputs(self) -> dict[str, type | DataContainer]:
+    def add_extra_inputs(self) -> dict[str, DataContainer]:
         """
         Return a dictionary of extra inputs that you want to add to the node config.
         This can access all original inputs, including static values if they exist.
         """
         return {}
 
-    def add_extra_outputs(self) -> dict[str, type | DataContainer]:
+    def add_extra_outputs(self) -> dict[str, DataContainer]:
         """
         Return a dictionary of extra outputs that you want to add to the node config.
         This can access all original inputs, including static values if they exist.

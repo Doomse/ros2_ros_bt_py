@@ -87,6 +87,9 @@ FLOAT_LIMITS = {
     "float64": (-1.7976931348623157e308, 1.7976931348623157e308),
 }
 
+# Max uint64 value that exactly matches a float64 value
+INT_FLOAT_MAX = 2**64 - 1616
+
 
 # handling nested objects,
 # see https://stackoverflow.com/questions/31174295/getattr-and-setattr-on-nested-objects

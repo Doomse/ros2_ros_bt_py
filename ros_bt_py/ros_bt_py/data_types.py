@@ -35,7 +35,7 @@ from typing import Any, Generic, Optional, Self, TypeGuard, TypeVar
 import jsonpickle
 from typeguard import typechecked
 
-from ros_bt_py.helpers import INT_LIMITS, FLOAT_LIMITS
+from ros_bt_py.helpers import INT_LIMITS, FLOAT_LIMITS, INT_FLOAT_MAX
 from ros_bt_py.ros_helpers import get_interface_name
 
 import rosidl_runtime_py
@@ -283,28 +283,10 @@ def get_iotype_for_msg(msg: NodeDataType) -> Result[DataContainer, str]:
     return Err("There is no IO type matching this identifier.")
 
 
-@typechecked
-def get_iotype_for_type(type_: type) -> Result[type[DataContainer], str]:
-    """
-    Get the IO type corresponding to the given type,
-    which has to either be one of the types in `BUILTIN_TYPE_MAP` or a ROS message type.
-    """
-    if rosidl_runtime_py.utilities.is_message(type_):
-        match get_ros_msg_type(type_):
-            case Err(e):
-                return Err(e)
-            case Ok(c):
-                return Ok(c)
-    container_type = BUILTIN_TYPE_MAP.get(type_)
-    if container_type is None:
-        return Err(f"There's no IO type associated with {type_}")
-    return Ok(container_type)
-
-
 # The inheritence here is only pro-forma to typecheck the constructor.
 #   It is recommended that implementations specify a container explicitly
 #   E.g. `class ValueType[V](TypeContainerMixin, DataContainer[V])`
-class TypeContainerMixin(DataContainer[type]):
+class TypeContainerMixin(DataContainer):
 
     # Update the defaults and verify that a type container doesn't allow dynamic values
     @typechecked
@@ -327,7 +309,7 @@ class TypeContainerMixin(DataContainer[type]):
         )
 
     @abc.abstractmethod
-    def get_value_field(self) -> Result[type[DataContainer], None]:
+    def get_value_field(self) -> Result[DataContainer, None]:
         raise NotImplementedError("Can't get value field for base class")
 
 
@@ -562,7 +544,7 @@ STRING = TypeVar("STRING", str, bytes)
 
 
 class StringContainer(BuiltinContainer[STRING]):
-    max_length: int = 2**64 - 1
+    max_length: int = INT_FLOAT_MAX
     strict_length: bool = False
     valid_values: Optional[list[str]]
 
@@ -704,8 +686,8 @@ class IterableContainer(BuiltinContainer[ITER]):
     operations on every `get_value` and `set_value` to avoid accidental modification.
     """
 
-    _element_type: Optional[DataContainer]
-    max_length: int = 2**64 - 1
+    _element_type: DataContainer = BlankType()
+    max_length: int = INT_FLOAT_MAX
     strict_length: bool = False
 
     @typechecked
@@ -717,11 +699,13 @@ class IterableContainer(BuiltinContainer[ITER]):
         *args,
         **kwargs,
     ) -> None:
-        self._element_type = element_type
+
+        if element_type is not None:
+            self._element_type = element_type
+
         # Force element_type to accept dynamic values
-        if self._element_type is not None:
-            self._element_type.allow_dynamic = True
-            self._element_type.is_static = False
+        self._element_type.allow_dynamic = True
+        self._element_type.is_static = False
 
         if max_length is not None:
             self.max_length = max_length
@@ -766,11 +750,6 @@ class IterableContainer(BuiltinContainer[ITER]):
 
     def serialize_type(self) -> NodeDataType:
         type_msg = super().serialize_type()
-        if self._element_type is None:
-            type_msg.value_type_identifier = [NodeDataType.UNDEFINED_TYPE]
-            type_msg.iterable_max_length = [self.max_length]
-            type_msg.iterable_strict_length = [self.strict_length]
-            return type_msg
         # Overlay msg of iterable type on msg of element type
         inner_type_msg = self._element_type.serialize_type()
         inner_type_msg.allow_dynamic = type_msg.allow_dynamic
@@ -816,8 +795,6 @@ class ListType(IterableContainer[list[Any]]):
 
     @typechecked
     def set_value(self, value: list) -> Result[None, str]:
-        if self._element_type is None:
-            return super().set_value(value)
         for item in value:
             match self._element_type.set_value(item):
                 case Err(e):
@@ -828,8 +805,6 @@ class ListType(IterableContainer[list[Any]]):
 
     @typechecked
     def _serialize_value(self, value: list[Any]) -> str:
-        if self._element_type is None:
-            return super()._serialize_value(value)
         serialized_list = []
         for item in value:
             match self._element_type.set_value(item):
@@ -844,8 +819,6 @@ class ListType(IterableContainer[list[Any]]):
 
     @typechecked
     def deserialize_value(self, ser_value: str) -> Result[None, str]:
-        if self._element_type is None:
-            return super().deserialize_value(ser_value)
         value_list = json.loads(ser_value)
         if not isinstance(value_list, self._type):
             return Err(f"Value {ser_value} is not a list")
@@ -882,8 +855,6 @@ class DictType(IterableContainer[dict[str, Any]]):
     @typechecked
     def set_value(self, value: dict) -> Result[None, str]:
         cleaned_keys = {str(k): v for k, v in value.items()}
-        if self._element_type is None:
-            return super().set_value(cleaned_keys)
         for item in cleaned_keys.values():
             match self._element_type.set_value(item):
                 case Err(e):
@@ -894,8 +865,6 @@ class DictType(IterableContainer[dict[str, Any]]):
 
     @typechecked
     def _serialize_value(self, value: dict[str, Any]) -> str:
-        if self._element_type is None:
-            return super()._serialize_value(value)
         serialized_dict: dict[str, str] = {}
         for key, item in value.items():
             match self._element_type.set_value(item):
@@ -910,8 +879,6 @@ class DictType(IterableContainer[dict[str, Any]]):
 
     @typechecked
     def deserialize_value(self, ser_value: str) -> Result[None, str]:
-        if self._element_type is None:
-            return super().deserialize_value(ser_value)
         value_dict = json.loads(ser_value)
         if not isinstance(value_dict, self._type):
             return Err(f"Value {ser_value} is not a list")
@@ -931,16 +898,71 @@ class DictType(IterableContainer[dict[str, Any]]):
         return self.set_value(value)
 
 
-BUILTIN_TYPE_MAP: dict[type, type[DataContainer]] = {
-    bool: BoolType,
-    int: IntType,
-    float: FloatType,
-    str: StringType,
-    list: ListType,
-    dict: DictType,
-    bytes: BytesType,
-    object: BlankType,
+IDENTIFIER_KEY = "type_identifier"
+ELEMENT_KEY = "element_type"
+BUILTIN_TYPE_MAP: dict[type, dict] = {
+    bool: {IDENTIFIER_KEY: NodeDataType.BOOL_TYPE},
+    int: {
+        IDENTIFIER_KEY: NodeDataType.INT_TYPE,
+        "min_value": INT_LIMITS["int64"][0],
+        "max_value": INT_LIMITS["int64"][1],
+    },
+    float: {
+        IDENTIFIER_KEY: NodeDataType.FLOAT_TYPE,
+        "min_value": FLOAT_LIMITS["float64"][0],
+        "max_value": FLOAT_LIMITS["float64"][1],
+    },
+    str: {
+        IDENTIFIER_KEY: NodeDataType.STRING_TYPE,
+        "string_max_length": INT_FLOAT_MAX,
+        "string_strict_length": False,
+    },
+    bytes: {
+        IDENTIFIER_KEY: NodeDataType.BYTES_TYPE,
+        "string_max_length": 1,
+        "string_strict_length": True,
+    },
+    list: {
+        IDENTIFIER_KEY: NodeDataType.LIST_TYPE,
+        "max_length": INT_FLOAT_MAX,
+        "strict_length": False,
+        ELEMENT_KEY: {IDENTIFIER_KEY: NodeDataType.BLANK_TYPE},
+    },
+    dict: {
+        IDENTIFIER_KEY: NodeDataType.DICT_TYPE,
+        "max_length": INT_FLOAT_MAX,
+        "strict_length": False,
+        ELEMENT_KEY: {IDENTIFIER_KEY: NodeDataType.BLANK_TYPE},
+    },
+    object: {IDENTIFIER_KEY: NodeDataType.BLANK_TYPE},
 }
+
+
+@typechecked
+def get_iotype_for_dict(value_dict: dict) -> Result[DataContainer, str]:
+    """
+    Note that this only constructs the data type, you still have to call
+    `deserialize_value` if you want to parse the value that was passed in.
+    """
+    try:
+        io_class = None
+        for io_type in CONCRETE_IO_TYPES:
+            if io_type.type_identifier == value_dict[IDENTIFIER_KEY]:
+                io_class = io_type
+        if io_class is None:
+            return Err("There is no IO type matching this identifier.")
+        args_dict = deepcopy(value_dict)
+        args_dict.pop(IDENTIFIER_KEY)
+        if ELEMENT_KEY in args_dict:
+            match get_iotype_for_dict(args_dict[ELEMENT_KEY]):
+                case Err(e):
+                    return Err(e)
+                case Ok(c):
+                    args_dict[ELEMENT_KEY] = c
+        io_instance = io_class(**args_dict)
+        return Ok(io_instance)
+    except (KeyError, TypeError) as e:
+        return Err(str(e))
 
 
 @typechecked
@@ -964,15 +986,58 @@ def deserialize_class(ser_cls: str) -> Result[type, str]:
     return Ok(cls)
 
 
+@typechecked
+def serialize_type_map_value(val: dict) -> dict:
+    value_dict = deepcopy(val)
+    # Coerce int & float values to string to avoid loss of precision
+    if "min_value" in value_dict.keys():
+        value_dict["min_value"] = str(value_dict["min_value"])
+    if "max_value" in value_dict.keys():
+        value_dict["max_value"] = str(value_dict["max_value"])
+    return value_dict
+
+
+@typechecked
+def deserialize_type_map_value(val: dict) -> dict:
+    value_dict = deepcopy(val)
+    if value_dict[IDENTIFIER_KEY] == NodeDataType.INT_TYPE:
+        converter = int
+    elif value_dict[IDENTIFIER_KEY] == NodeDataType.FLOAT_TYPE:
+        converter = float
+    else:
+        return value_dict
+    # Coerce int & float values to string to avoid loss of precision
+    if "min_value" in value_dict.keys():
+        value_dict["min_value"] = converter(value_dict["min_value"])
+    if "max_value" in value_dict.keys():
+        value_dict["max_value"] = converter(value_dict["max_value"])
+    return value_dict
+
+
+@typechecked
+def serialize_type_map(keys: list[type]) -> list[str]:
+    ser_list: list[str] = []
+    for key in keys:
+        if key not in BUILTIN_TYPE_MAP.keys():
+            continue
+        type_dict = {
+            "type": serialize_class(key),
+            "value": serialize_type_map_value(BUILTIN_TYPE_MAP[key]),
+        }
+        ser_list.append(json.dumps(type_dict))
+    return ser_list
+
+
 @register_io_type
-class BuiltinType(TypeContainerMixin, DataContainer[type]):
+class BuiltinType(TypeContainerMixin, BuiltinContainer[dict]):
     """
     This holds a builtin type from the `BUILTIN_TYPE_MAP` keys,
     which can optionally be a constrained further by supplying a list of valid types.
     """
 
     type_identifier = NodeDataType.BUILTIN_TYPE
-    _value = int
+    _value = BUILTIN_TYPE_MAP[int]
+    _type = dict
     valid_types: list[type]
 
     @typechecked
@@ -997,7 +1062,8 @@ class BuiltinType(TypeContainerMixin, DataContainer[type]):
                 config = c
         valid_types: list[type] = []
         for option in msg.serialized_value_options:
-            match deserialize_class(option):
+            option_dict = json.loads(option)
+            match deserialize_class(option_dict["type"]):
                 case Err(_):
                     continue
                 case Ok(c):
@@ -1006,12 +1072,17 @@ class BuiltinType(TypeContainerMixin, DataContainer[type]):
         return Ok(config)
 
     @typechecked
-    def set_value(self, value: type) -> Result[None, str]:
-        if value not in self.valid_types:
-            return Err(
-                f"Type {value} is a valid type. Valid types: {list(self.valid_types)}"
-            )
-        return super().set_value(value)
+    def set_value(self, value: dict) -> Result[None, str]:
+        if IDENTIFIER_KEY not in value.keys():
+            return Err(f"Dict {value} doesn't include an identifier")
+        for option in self.valid_types:
+            option_value = BUILTIN_TYPE_MAP[option]
+            if option_value[IDENTIFIER_KEY] != value[IDENTIFIER_KEY]:
+                continue
+            if option_value.keys() == value.keys():
+                return super().set_value(value)
+            return Err(f"Dict {value} doesn't match template {option_value}")
+        return Err(f"Identifier in dict {value} is invalid")
 
     def is_compatible(self, other: DataContainer) -> TypeGuard[Self]:
         if not super().is_compatible(other):
@@ -1023,31 +1094,22 @@ class BuiltinType(TypeContainerMixin, DataContainer[type]):
 
     def serialize_type(self) -> NodeDataType:
         type_msg = super().serialize_type()
-        type_msg.serialized_value_options = []
-        for type_elem in self.valid_types:
-            type_msg.serialized_value_options.append(serialize_class(type_elem))
+        type_msg.serialized_value_options = serialize_type_map(self.valid_types)
         return type_msg
 
-    def _serialize_value(self, value: type) -> str:
-        return serialize_class(value)
+    def _serialize_value(self, value: dict) -> str:
+        return super()._serialize_value(serialize_type_map_value(value))
 
     def deserialize_value(self, ser_value: str) -> Result[None, str]:
-        match deserialize_class(ser_value):
-            case Err(e):
-                return Err(e)
-            case Ok(value):
-                return self.set_value(value)
+        return self.set_value(deserialize_type_map_value(json.loads(ser_value)))
 
     @typechecked
-    def get_value_field(self) -> Result[type[DataContainer], None]:
-        match self.get_value():
-            case Err(None):
-                return Err(None)
-            case Ok(v):
-                value = v
-        if value not in BUILTIN_TYPE_MAP.keys():
-            return Err(None)
-        return Ok(BUILTIN_TYPE_MAP[value])
+    def get_value_field(self) -> Result[DataContainer, None]:
+        return (
+            self.get_value()
+            .and_then(lambda val: get_iotype_for_dict(val))
+            .map_err(lambda _: None)
+        )
 
 
 ROS = TypeVar("ROS")
@@ -1199,22 +1261,21 @@ class RosMsgContainer(RosContainer[Any]):
 
 
 @typechecked
-def get_ros_msg_type(msg_type: type) -> Result[type[RosMsgContainer], str]:
+def get_ros_msg_type(msg_type: type) -> Result[RosMsgContainer, str]:
     """
     Get an IO type class for a given ROS message type.
     """
     if not rosidl_runtime_py.utilities.is_message(msg_type):
         return Err(f"Type {msg_type} is not a valid message type")
-    return Ok(
-        type(
-            f"{msg_type.__name__}Container",
-            (RosMsgContainer,),
-            {"message_type": msg_type},
-        )
+    msg_cls = type(
+        f"{msg_type.__name__}Container",
+        (RosMsgContainer,),
+        {"message_type": msg_type},
     )
+    return Ok(msg_cls())
 
 
-class RosTypeContainer(RosContainer[type]):
+class RosTypeContainer(TypeContainerMixin, RosContainer[type]):
     type_identifier = NodeDataType.ROS_INTERFACE_TYPE
 
     # Adapt defaults to common use case of type specification (static only)
@@ -1259,7 +1320,7 @@ class RosTypeContainer(RosContainer[type]):
 
 
 @register_io_type
-class RosTopicType(TypeContainerMixin, RosTypeContainer):
+class RosTopicType(RosTypeContainer):
     """
     This type holds message types of ROS topics.
 
@@ -1277,7 +1338,7 @@ class RosTopicType(TypeContainerMixin, RosTypeContainer):
         return rosidl_runtime_py.utilities.is_message(value)
 
     @typechecked
-    def get_value_field(self) -> Result[type[DataContainer], None]:
+    def get_value_field(self) -> Result[DataContainer, None]:
         match self.get_value():
             case Err(None):
                 return Err(None)
@@ -1340,7 +1401,7 @@ class RosComponentType(RosTypeContainer):
         return rosidl_runtime_py.utilities.is_message(value)
 
 
-class BuiltinOrRosType(TypeContainerMixin, DataContainer[type]):
+class BuiltinOrRosType(TypeContainerMixin, DataContainer[dict | type]):
     """
     This acts as a either a `BuiltinType` or a `RosTopicType`,
     depending on whether `ros_interface_kind` is set to `ROS_UNDEFINED` or `ROS_TOPIC`.
@@ -1372,10 +1433,14 @@ class BuiltinOrRosType(TypeContainerMixin, DataContainer[type]):
         return Ok(config)
 
     @typechecked
-    def set_value(self, value: type) -> Result[None, str]:
-        return self._inner_type.set_value(value)
+    def set_value(self, value: dict | type) -> Result[None, str]:
+        if isinstance(value, type) and isinstance(self._inner_type, RosTopicType):
+            return self._inner_type.set_value(value)
+        if isinstance(value, dict) and isinstance(self._inner_type, BuiltinType):
+            return self._inner_type.set_value(value)
+        return Err(f"Mismatch between value {value} and inner type {self._inner_type}")
 
-    def get_value(self) -> Result[type, None]:
+    def get_value(self) -> Result[dict | type, None]:
         return self._inner_type.get_value()
 
     @typechecked
@@ -1388,18 +1453,26 @@ class BuiltinOrRosType(TypeContainerMixin, DataContainer[type]):
             type_msg.ros_interface_kind = NodeDataType.ROS_TOPIC
         else:
             type_msg.ros_interface_kind = NodeDataType.ROS_UNDEFINED
+        # Always include the builtin value map for reference
+        type_msg.serialized_value_options = serialize_type_map(
+            list(BUILTIN_TYPE_MAP.keys())
+        )
         return type_msg
 
     @typechecked
-    def _serialize_value(self, value: type) -> str:
-        return self._inner_type._serialize_value(value)
+    def _serialize_value(self, value: dict | type) -> str:
+        if isinstance(value, type) and isinstance(self._inner_type, RosTopicType):
+            return self._inner_type._serialize_value(value)
+        if isinstance(value, dict) and isinstance(self._inner_type, BuiltinType):
+            return self._inner_type._serialize_value(value)
+        return ""
 
     @typechecked
     def deserialize_value(self, ser_value: str) -> Result[None, str]:
         return self._inner_type.deserialize_value(ser_value)
 
     @typechecked
-    def get_value_field(self) -> Result[type[DataContainer], None]:
+    def get_value_field(self) -> Result[DataContainer, None]:
         return self._inner_type.get_value_field()
 
 
@@ -1435,12 +1508,10 @@ class ReferenceContainer(DataContainer[Any]):
             case Err(None):
                 return Err("Target didn't yield a value field")
             case Ok(c):
-                inner_cls = c
-        self._inner_type = inner_cls(
-            allow_dynamic=self.allow_dynamic,
-            allow_static=self.allow_static,
-            is_static=self.is_static,
-        )
+                self._inner_type = c
+        self._inner_type.allow_dynamic = self.allow_dynamic
+        self._inner_type.allow_static = self.allow_static
+        self._inner_type.is_static = self.is_static
         return Ok(None)
 
     @typechecked
