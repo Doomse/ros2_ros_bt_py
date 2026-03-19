@@ -1015,7 +1015,6 @@ class Node(object, metaclass=NodeMeta):
             return Err(
                 BehaviorTreeException(
                     "Failed to instantiate node from message - node class not available. "
-                    f"Original message:\n{str(msg)}"
                 )
             )
 
@@ -1034,15 +1033,13 @@ class Node(object, metaclass=NodeMeta):
             return Err(
                 BehaviorTreeException(
                     "Failed to instantiate node from message - node class not available."
-                    f"Original message:\n{str(msg)}"
                 )
             )
         if len(candidates) > 1:
             return Err(
                 BehaviorTreeException(
                     "Failed to instantiate node from message - "
-                    "multiple versions of node class "
-                    f"available. Original message:\n {str(msg)}"
+                    "multiple versions of node class available."
                 )
             )
         node_class = candidates[0]

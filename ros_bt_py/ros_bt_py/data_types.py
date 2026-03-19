@@ -30,7 +30,6 @@ from copy import deepcopy
 from importlib import import_module
 from inspect import getmodule
 import json
-import re
 from typing import Any, Generic, Optional, Self, TypeGuard, TypeVar
 import jsonpickle
 from typeguard import typechecked
@@ -178,7 +177,12 @@ class DataContainer(Generic[ANY], abc.ABC):
         Returns the own runtime type, this is almost always just `self`,
         except for instances of `ReferenceContainer`.
         """
-        return self
+        run_type = deepcopy(self)
+        # At runtime we care whether the value IS static or not,
+        #   so we overwrite `allow_dynamic` and `allow_static` accordingly
+        run_type.allow_dynamic = not run_type.is_static
+        run_type.allow_static = run_type.is_static
+        return run_type
 
     @abc.abstractmethod
     @typechecked
@@ -446,8 +450,8 @@ class NumericContainer(BuiltinContainer[NUM]):
         *args,
         **kwargs,
     ) -> None:
-        self.min_value = min_value if min_value else self.lower_limit
-        self.max_value = max_value if max_value else self.upper_limit
+        self.min_value = min_value if min_value is not None else self.lower_limit
+        self.max_value = max_value if max_value is not None else self.upper_limit
 
         if self.min_value > self.max_value:
             raise RuntimeError(
@@ -914,13 +918,13 @@ BUILTIN_TYPE_MAP: dict[type, dict] = {
     },
     str: {
         IDENTIFIER_KEY: NodeDataType.STRING_TYPE,
-        "string_max_length": INT_FLOAT_MAX,
-        "string_strict_length": False,
+        "max_length": INT_FLOAT_MAX,
+        "strict_length": False,
     },
     bytes: {
         IDENTIFIER_KEY: NodeDataType.BYTES_TYPE,
-        "string_max_length": 1,
-        "string_strict_length": True,
+        "max_length": 1,
+        "strict_length": True,
     },
     list: {
         IDENTIFIER_KEY: NodeDataType.LIST_TYPE,
@@ -1401,6 +1405,7 @@ class RosComponentType(RosTypeContainer):
         return rosidl_runtime_py.utilities.is_message(value)
 
 
+@register_io_type
 class BuiltinOrRosType(TypeContainerMixin, DataContainer[dict | type]):
     """
     This acts as a either a `BuiltinType` or a `RosTopicType`,
@@ -1549,7 +1554,7 @@ class ReferenceContainer(DataContainer[Any]):
     def get_runtime_type(self) -> DataContainer:
         if self._inner_type is None:
             return self
-        return self._inner_type
+        return self._inner_type.get_runtime_type()
 
     def set_value(self, value: Any) -> Result[None, str]:
         if self._inner_type is None:

@@ -1372,7 +1372,9 @@ class TreeExecManager:
                     f"Target node ({target_node_id}) doesn't exist in tree"
                 )
             )
-        source_container = source_node.outputs.get(wiring_msg.source.data_key)
+        source_container = source_node.node_config.outputs.get(
+            wiring_msg.source.data_key
+        )
         if source_container is None:
             return Err(
                 BehaviorTreeException(
@@ -1380,11 +1382,13 @@ class TreeExecManager:
                     f"an output key {wiring_msg.source.data_key}"
                 )
             )
-        target_container = target_node.outputs.get(wiring_msg.target.data_key)
+        target_container = target_node.node_config.inputs.get(
+            wiring_msg.target.data_key
+        )
         if target_container is None:
             return Err(
                 BehaviorTreeException(
-                    f"Source node ({source_node_id}) doesn't have "
+                    f"Target node ({target_node_id}) doesn't have "
                     f"an output key {wiring_msg.target.data_key}"
                 )
             )
