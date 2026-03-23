@@ -549,21 +549,17 @@ STRING = TypeVar("STRING", str, bytes)
 
 class StringContainer(BuiltinContainer[STRING]):
     max_length: int = INT_FLOAT_MAX
-    strict_length: bool = False
     valid_values: Optional[list[str]]
 
     def __init__(
         self,
         max_length: Optional[int] = None,
-        strict_length: Optional[bool] = None,
         valid_values: Optional[list[str]] = None,
         *args,
         **kwargs,
     ) -> None:
         if max_length is not None:
             self.max_length = max_length
-        if strict_length is not None:
-            self.strict_length = strict_length
         self.valid_values = valid_values
 
         super().__init__(*args, **kwargs)
@@ -576,7 +572,6 @@ class StringContainer(BuiltinContainer[STRING]):
             case Ok(c):
                 config = c
         config["max_length"] = msg.string_max_length
-        config["strict_length"] = msg.string_strict_length
         if len(msg.serialized_value_options) > 0:
             config["valid_values"] = msg.serialized_value_options
         return Ok(config)
@@ -585,8 +580,6 @@ class StringContainer(BuiltinContainer[STRING]):
     def set_value(self, value: STRING) -> Result[None, str]:
         if len(value) > self.max_length:
             return Err(f"Length of {value} exceeds maximum of {self.max_length}")
-        if self.strict_length and len(value) < self.max_length:
-            return Err(f"Length of {value} is short of minimum {self.max_length}")
         if self.valid_values is not None:
             if value not in self.valid_values:
                 return Err(f"Value {value} is not a valid value [{self.valid_values}]")
@@ -596,8 +589,6 @@ class StringContainer(BuiltinContainer[STRING]):
         if not super().is_compatible(other):
             return False
         if other.max_length > self.max_length:
-            return False
-        if not other.strict_length and self.strict_length:
             return False
         if self.valid_values is not None:
             if other.valid_values is None:
@@ -610,7 +601,6 @@ class StringContainer(BuiltinContainer[STRING]):
     def serialize_type(self) -> NodeDataType:
         type_msg = super().serialize_type()
         type_msg.string_max_length = self.max_length
-        type_msg.string_strict_length = self.strict_length
         if self.valid_values is not None:
             type_msg.serialized_value_options = self.valid_values
         return type_msg
@@ -659,7 +649,6 @@ class BytesType(StringContainer[bytes]):
     _value = b"\x00"
 
     max_length = 1
-    strict_length = True
 
     @typechecked
     def _serialize_value(self, value: bytes) -> str:
