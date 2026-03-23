@@ -794,7 +794,7 @@ class ListType(IterableContainer[list[Any]]):
     """
 
     type_identifier = NodeDataType.LIST_TYPE
-    _type = list[Any]
+    _type = list
     _value = []
 
     @typechecked
@@ -828,7 +828,7 @@ class ListType(IterableContainer[list[Any]]):
             return Err(f"Value {ser_value} is not a list")
         value = []
         for item in value_list:
-            match self._element_type.deserialize_value(json.dumps(item)):
+            match self._element_type.deserialize_value(item):
                 case Err(e):
                     return Err(e)
                 case Ok(None):
@@ -853,7 +853,7 @@ class DictType(IterableContainer[dict[str, Any]]):
     """
 
     type_identifier = NodeDataType.DICT_TYPE
-    _type = dict[str, Any]
+    _type = dict
     _value = {}
 
     @typechecked
@@ -885,10 +885,10 @@ class DictType(IterableContainer[dict[str, Any]]):
     def deserialize_value(self, ser_value: str) -> Result[None, str]:
         value_dict = json.loads(ser_value)
         if not isinstance(value_dict, self._type):
-            return Err(f"Value {ser_value} is not a list")
+            return Err(f"Value {ser_value} is not a dict")
         value = {}
         for key, item in value_dict.items():
-            match self._element_type.deserialize_value(json.dumps(item)):
+            match self._element_type.deserialize_value(item):
                 case Err(e):
                     return Err(e)
                 case Ok(None):
@@ -998,6 +998,8 @@ def serialize_type_map_value(val: dict) -> dict:
         value_dict["min_value"] = str(value_dict["min_value"])
     if "max_value" in value_dict.keys():
         value_dict["max_value"] = str(value_dict["max_value"])
+    if ELEMENT_KEY in value_dict.keys():
+        value_dict[ELEMENT_KEY] = serialize_type_map_value(value_dict[ELEMENT_KEY])
     return value_dict
 
 
@@ -1009,6 +1011,10 @@ def deserialize_type_map_value(val: dict) -> dict:
     elif value_dict[IDENTIFIER_KEY] == NodeDataType.FLOAT_TYPE:
         converter = float
     else:
+        if ELEMENT_KEY in value_dict.keys():
+            value_dict[ELEMENT_KEY] = deserialize_type_map_value(
+                value_dict[ELEMENT_KEY]
+            )
         return value_dict
     # Coerce int & float values to string to avoid loss of precision
     if "min_value" in value_dict.keys():
