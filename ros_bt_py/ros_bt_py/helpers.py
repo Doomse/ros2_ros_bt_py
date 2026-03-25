@@ -28,22 +28,16 @@
 
 # from enum import StrEnum Not available in Python3.10
 import abc
-from typing import Any, Iterable, Optional, cast
-import rclpy
-import rclpy.logging
-import jsonpickle
 import functools
 import re
-import uuid
-from collections import OrderedDict
+from typing import Any, Optional, cast
+from typeguard import typechecked
 
-from ros_bt_py.exceptions import BehaviorTreeException
-from ros_bt_py.vendor.result import Err
+import rclpy
+import rclpy.logging
 import rosidl_runtime_py.utilities
 
-from ros_bt_py_interfaces.msg import NodeState, CapabilityInterface
-from typeguard import typechecked
-from ros_bt_py.ros_helpers import EnumValue, LoggerLevel
+from ros_bt_py_interfaces.msg import NodeState
 
 
 @typechecked
@@ -83,8 +77,8 @@ INT_LIMITS = {
 
 
 FLOAT_LIMITS = {
-    "float32": (-3.4028235e38, 3.4028235e38),
-    "float64": (-1.7976931348623157e308, 1.7976931348623157e308),
+    "float": (-3.4028235e38, 3.4028235e38),
+    "double": (-1.7976931348623157e308, 1.7976931348623157e308),
 }
 
 # Max uint64 value that exactly matches a float64 value
@@ -122,12 +116,6 @@ def get_default_value(data_type: Any, ros: bool = False) -> Any:
         return []
     elif data_type is dict:
         return {}
-    elif data_type is OrderedDict:
-        return OrderedDict()
-    elif data_type is LoggerLevel:
-        return LoggerLevel()
-    elif data_type is EnumValue:
-        return EnumValue()
     elif ros:
         return data_type()
     else:

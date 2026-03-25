@@ -30,8 +30,8 @@ from copy import deepcopy
 from importlib import import_module
 from inspect import getmodule
 import json
-from typing import Any, Generic, Optional, Self, TypeGuard, TypeVar
-import jsonpickle
+import re
+from typing import Any, Generic, Optional, Protocol, Self, TypeGuard, TypeVar
 from typeguard import typechecked
 
 from ros_bt_py.helpers import INT_LIMITS, FLOAT_LIMITS, INT_FLOAT_MAX
@@ -351,65 +351,6 @@ class BuiltinContainer(DataContainer[BUILTIN]):
 
 
 @register_io_type
-class BlankType(BuiltinContainer[object]):
-    """
-    This type holds arbitrary values and is compatible with everything
-    """
-
-    type_identifier = NodeDataType.BLANK_TYPE
-    _type = object
-
-    @typechecked
-    def __init__(
-        self,
-        allow_dynamic=True,
-        allow_static=False,
-        *args,
-        **kwargs,
-    ) -> None:
-        if allow_static:
-            raise RuntimeError("Blank types cannot be static.")
-        super().__init__(
-            allow_dynamic=allow_dynamic,
-            allow_static=allow_static,
-            *args,
-            **kwargs,
-        )
-
-    @classmethod
-    def _dict_from_msg(cls, msg: NodeDataType) -> Result[dict, str]:
-        # Nothing to add for blank
-        return super()._dict_from_msg(msg)
-
-    def is_compatible(self, other: DataContainer) -> bool:
-        # Blank accepts everything
-        return True
-
-    def serialize_type(self) -> NodeDataType:
-        # Nothing to add for blank
-        return super().serialize_type()
-
-    def set_value(self, value: object) -> Result[None, str]:
-        return super().set_value(deepcopy(value))
-
-    def get_value(self) -> Result[object, None]:
-        return super().get_value().and_then(lambda v: Ok(deepcopy(v)))
-
-    def _serialize_value(self, value: object) -> str:
-        pickle_str = jsonpickle.encode(value)
-        if not isinstance(pickle_str, str):
-            return str(value)
-        return pickle_str
-
-    # This is included for completion's sake
-    # Since we disallow static assignment,
-    #   we should never have to assign from a serialized value.
-    def deserialize_value(self, ser_value: str) -> Result[None, str]:
-        value = jsonpickle.decode(ser_value)
-        return self.set_value(value)
-
-
-@register_io_type
 class BoolType(BuiltinContainer[bool]):
     """
     This type holds a simple boolean value
@@ -524,7 +465,7 @@ class FloatType(NumericContainer[float]):
 
     type_identifier = NodeDataType.FLOAT_TYPE
     _type = float
-    lower_limit, upper_limit = FLOAT_LIMITS["float64"]
+    lower_limit, upper_limit = FLOAT_LIMITS["double"]
 
     @classmethod
     def _dict_from_msg(cls, msg: NodeDataType) -> Result[dict, str]:
@@ -549,6 +490,7 @@ STRING = TypeVar("STRING", str, bytes)
 
 class StringContainer(BuiltinContainer[STRING]):
     max_length: int = INT_FLOAT_MAX
+    strict_length: bool = False
     valid_values: Optional[list[str]]
 
     def __init__(
@@ -580,6 +522,8 @@ class StringContainer(BuiltinContainer[STRING]):
     def set_value(self, value: STRING) -> Result[None, str]:
         if len(value) > self.max_length:
             return Err(f"Length of {value} exceeds maximum of {self.max_length}")
+        if self.strict_length and len(value) < self.max_length:
+            return Err(f"Length of {value} is short of minimum {self.max_length}")
         if self.valid_values is not None:
             if value not in self.valid_values:
                 return Err(f"Value {value} is not a valid value [{self.valid_values}]")
@@ -649,6 +593,7 @@ class BytesType(StringContainer[bytes]):
     _value = b"\x00"
 
     max_length = 1
+    strict_length = True
 
     @typechecked
     def _serialize_value(self, value: bytes) -> str:
@@ -679,7 +624,7 @@ class IterableContainer(BuiltinContainer[ITER]):
     operations on every `get_value` and `set_value` to avoid accidental modification.
     """
 
-    _element_type: DataContainer = BlankType()
+    _element_type: DataContainer = IntType()
     max_length: int = INT_FLOAT_MAX
     strict_length: bool = False
 
@@ -902,32 +847,29 @@ BUILTIN_TYPE_MAP: dict[type, dict] = {
     },
     float: {
         IDENTIFIER_KEY: NodeDataType.FLOAT_TYPE,
-        "min_value": FLOAT_LIMITS["float64"][0],
-        "max_value": FLOAT_LIMITS["float64"][1],
+        "min_value": FLOAT_LIMITS["double"][0],
+        "max_value": FLOAT_LIMITS["double"][1],
     },
     str: {
         IDENTIFIER_KEY: NodeDataType.STRING_TYPE,
         "max_length": INT_FLOAT_MAX,
-        "strict_length": False,
     },
     bytes: {
         IDENTIFIER_KEY: NodeDataType.BYTES_TYPE,
         "max_length": 1,
-        "strict_length": True,
     },
     list: {
         IDENTIFIER_KEY: NodeDataType.LIST_TYPE,
         "max_length": INT_FLOAT_MAX,
         "strict_length": False,
-        ELEMENT_KEY: {IDENTIFIER_KEY: NodeDataType.BLANK_TYPE},
+        ELEMENT_KEY: {IDENTIFIER_KEY: NodeDataType.BOOL_TYPE},
     },
     dict: {
         IDENTIFIER_KEY: NodeDataType.DICT_TYPE,
         "max_length": INT_FLOAT_MAX,
         "strict_length": False,
-        ELEMENT_KEY: {IDENTIFIER_KEY: NodeDataType.BLANK_TYPE},
+        ELEMENT_KEY: {IDENTIFIER_KEY: NodeDataType.BOOL_TYPE},
     },
-    object: {IDENTIFIER_KEY: NodeDataType.BLANK_TYPE},
 }
 
 
@@ -1115,7 +1057,7 @@ ROS = TypeVar("ROS")
 
 
 class RosContainer(DataContainer[ROS]):
-    # This interface_kind has to be assigned a value in subclass definitions
+    # This `interface_kind` has to be assigned a value in subclass definitions
     #   and should ONLY be a class attribute
     interface_kind: int
     interface_id: int
@@ -1199,10 +1141,17 @@ class RosActionName(RosNameContainer):
     interface_kind = NodeDataType.ROS_ACTION
 
 
+class RosMessage(Protocol):
+
+    @classmethod
+    def get_fields_and_field_types(cls) -> dict[str, str]:
+        raise NotImplementedError
+
+
 class RosMsgContainer(RosContainer[Any]):
     """
     This is primarily used as a superclass for the `value_field`
-    for RosTopicType and should probably not be used directly,
+    for RosTopicType and should NEVER be used directly,
     as it requires specifying a message type as a class attribute.
     """
 
@@ -1210,15 +1159,18 @@ class RosMsgContainer(RosContainer[Any]):
     interface_kind = NodeDataType.ROS_TOPIC
 
     # This message_type is set by the factory function
-    message_type: type
+    message_type: type[RosMessage]
 
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, value: Optional[Any] = None, *args, **kwargs) -> None:
         if not hasattr(self, "message_type"):
             raise RuntimeError(
                 "All conctrete implementations have to specify a message_type. "
                 "Use the factory function."
             )
-        super().__init__(*args, **kwargs)
+        super().__init__(value=value, *args, **kwargs)
+        # If there is no value given, construct it by default-initializing the message type
+        if value is None:
+            self._value = self.message_type()
 
     def is_compatible(self, other: DataContainer) -> TypeGuard[Self]:
         if not super().is_compatible(other):
@@ -1243,20 +1195,63 @@ class RosMsgContainer(RosContainer[Any]):
         return super().get_value().and_then(lambda v: Ok(deepcopy(v)))
 
     def _serialize_value(self, value: Any) -> str:
-        return json.dumps(rosidl_runtime_py.message_to_ordereddict(value))
+        match self.get_element_fields():
+            case Err(_):
+                return ""
+            case Ok(d):
+                field_dict = d
+        out_dict = {}
+        for field_name, field_type in field_dict.items():
+            match field_type.set_value(getattr(value, field_name, None)):
+                case Err(_):
+                    return ""
+                case Ok(None):
+                    pass
+            out_dict[field_name] = field_type.serialize_value()
+        return json.dumps(out_dict)
 
     @typechecked
     def deserialize_value(self, ser_value: str) -> Result[None, str]:
-        try:
-            value = rosidl_runtime_py.set_message_fields(
-                self.message_type,
-                json.loads(ser_value),
-            )
-        except (TypeError, AttributeError, ValueError):
-            return Err(
-                f"Error populating message of type {self.message_type} with value {ser_value}"
-            )
+        match self.get_element_fields():
+            case Err(e):
+                return Err(e)
+            case Ok(d):
+                field_dict = d
+        value = self.message_type()
+        in_dict = json.loads(ser_value)
+        if not isinstance(in_dict, dict):
+            return Err(f"Serialized value {ser_value} is not a dict")
+        for field_name, field_value in in_dict.items():
+            if field_name in field_dict.keys():
+                field_type = field_dict[field_name]
+                match field_type.deserialize_value(field_value):
+                    case Err(e):
+                        return Err(e)
+                    case Ok(None):
+                        pass
+                match field_type.get_value():
+                    case Err(None):
+                        pass
+                    case Ok(v):
+                        setattr(value, field_name, v)
+            else:
+                return Err(
+                    f"Key {field_name} does not exist on message type {self.message_type}"
+                )
         return self.set_value(value)
+
+    def get_element_fields(self) -> Result[dict[str, DataContainer], str]:
+        out_dict = {}
+        for (
+            field_name,
+            field_type,
+        ) in self.message_type.get_fields_and_field_types().items():
+            match get_message_field_io_type(field_type):
+                case Err(e):
+                    return Err(e)
+                case Ok(c):
+                    out_dict[field_name] = c
+        return Ok(out_dict)
 
 
 @typechecked
@@ -1317,6 +1312,19 @@ class RosTypeContainer(TypeContainerMixin, RosContainer[type]):
             )
         return self.set_value(msg)
 
+    @typechecked
+    def get_value_field(self) -> Result[DataContainer, None]:
+        match self.get_value():
+            case Err(None):
+                return Err(None)
+            case Ok(v):
+                value = v
+        match get_ros_msg_type(value):
+            case Err(e):
+                raise RuntimeError(f"Cannot identify message type {value} due to {e}")
+            case Ok(t):
+                return Ok(t)
+
 
 @register_io_type
 class RosTopicType(RosTypeContainer):
@@ -1335,19 +1343,6 @@ class RosTopicType(RosTypeContainer):
     @typechecked
     def _validate(value: type) -> bool:
         return rosidl_runtime_py.utilities.is_message(value)
-
-    @typechecked
-    def get_value_field(self) -> Result[DataContainer, None]:
-        match self.get_value():
-            case Err(None):
-                return Err(None)
-            case Ok(v):
-                value = v
-        match get_ros_msg_type(value):
-            case Err(e):
-                raise RuntimeError(f"Cannot identify message type {value} due to {e}")
-            case Ok(t):
-                return Ok(t)
 
 
 @register_io_type
@@ -1670,3 +1665,64 @@ class ReferenceDictType(ReferenceContainer):
                 pass
         self._inner_type = DictType(element_type=self._inner_type)
         return Ok(None)
+
+
+@typechecked
+def get_message_field_io_type(field_type: str) -> Result[DataContainer, str]:
+    # Checks if the type matches a sequence definition and extracts the element-type and bounds
+    match_sequence = re.match(r"sequence<([\w\/<>]+)(?:, (\d+))?>", field_type)
+    # Checks if the type matches an array definition and extracts the element-type and bounds
+    match_array = re.match(r"([\w\/<>]*)\[(\d+)\]", field_type)
+    if match_sequence or match_array:
+        if match_sequence:
+            nested_type_str, max_len_str = match_sequence.groups()
+            is_static = False
+        if match_array:
+            nested_type_str, max_len_str = match_array.groups()
+            is_static = True
+        if max_len_str is None:
+            max_len = None
+        else:
+            max_len = int(max_len_str)
+        match get_message_field_io_type(nested_type_str):
+            case Err(e):
+                return Err(e)
+            case Ok(t):
+                element_type = t
+        return Ok(
+            ListType(
+                element_type=element_type, max_length=max_len, strict_length=is_static
+            )
+        )
+
+    match_string = re.match(r"w?string(?:<(\d+)>)?", field_type)
+    if match_string:
+        max_len_str = match_string.group(1)
+        if max_len_str is None:
+            max_len = None
+        else:
+            max_len = int(max_len_str)
+        return Ok(StringType(max_length=max_len))
+
+    # Check if the type matches a message type
+    if field_type.find("/") != -1:
+        return get_ros_msg_type(rosidl_runtime_py.utilities.get_message(field_type))
+
+    if field_type == "boolean":
+        return Ok(BoolType())
+    if field_type == "octet":
+        return Ok(BytesType())
+    if field_type.find("int") != -1:
+        try:
+            min_v, max_v = INT_LIMITS[field_type]
+            return Ok(IntType(min_value=min_v, max_value=max_v))
+        except KeyError:
+            return Err(f"{field_type} is not an integer type")
+    if field_type.find("float") != -1 or field_type.find("double") != -1:
+        try:
+            min_v, max_v = FLOAT_LIMITS[field_type]
+            return Ok(FloatType(min_value=min_v, max_value=max_v))
+        except KeyError:
+            return Err(f"{field_type} is not a float type")
+
+    return Err(f"Unrecognized field type {field_type}")

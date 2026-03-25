@@ -32,7 +32,6 @@ import abc
 from ros_bt_py.vendor.result import Result, Ok, Err, do
 
 from ros_bt_py.data_types import (
-    BlankType,
     BoolType,
     BuiltinOrRosType,
     IntType,
@@ -41,6 +40,7 @@ from ros_bt_py.data_types import (
     ReferenceListType,
     ReferenceType,
     StringType,
+    RosTopicType,
 )
 from ros_bt_py.exceptions import BehaviorTreeException
 from ros_bt_py.helpers import BTNodeState, rgetattr
@@ -275,11 +275,12 @@ class GetMultipleDictItems(Getter):
     NodeConfig(
         version="0.1.0",
         inputs={
+            "object_type": RosTopicType(),
             "attr_type": BuiltinOrRosType(),
             "attr_name": StringType(),
-            "object": BlankType(),
+            "object": ReferenceType(reference="object_type"),
         },
-        outputs={"attr": ReferenceType("attr_type")},
+        outputs={"attr": ReferenceType(reference="attr_type")},
         max_children=1,
     )
 )

@@ -66,8 +66,6 @@ string min_value
 string max_value
 
 uint64 string_max_length
-# If strict_length, the maximum has to be matched exactly
-bool string_strict_length
 
 # Those are given as list to support nested structures
 uint64[] iterable_max_length
