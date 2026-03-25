@@ -42,8 +42,16 @@ import rclpy.logging
 import rosidl_runtime_py
 import rosidl_runtime_py.utilities
 
+from ros_bt_py.vendor.result import Ok, Err
+
+from ros_bt_py.data_types import get_ros_msg_type
+from ros_bt_py.node import Node, load_node_module, increment_name
+from ros_bt_py.helpers import build_message_field_dicts
+from ros_bt_py.ros_helpers import get_message_constant_fields, get_interface_name
+
 from ros_bt_py_interfaces.msg import (
     DocumentedNode,
+    MessageType,
     NodeIO,
     MessageTypes,
     Package,
@@ -59,9 +67,8 @@ from ros_bt_py_interfaces.srv import (
     GetAvailableNodes,
 )
 
-from ros_bt_py.node import Node, load_node_module, increment_name
-from ros_bt_py.helpers import build_message_field_dicts
-from ros_bt_py.ros_helpers import get_message_constant_fields
+
+LOGGER = rclpy.logging.get_logger("package_manager")
 
 
 def make_filepath_unique(filepath):
@@ -69,6 +76,29 @@ def make_filepath_unique(filepath):
     while os.path.exists(name + extension):
         name = increment_name(name)
     return name + extension
+
+
+def data_type_to_message_type(message_type: type) -> MessageType:
+    message_type_msg = MessageType()
+    message_type_msg.name = get_interface_name(message_type)
+    match get_ros_msg_type(message_type):
+        case Err(e):
+            LOGGER.warn(e)
+            return message_type_msg
+        case Ok(c):
+            container = c
+    message_type_msg.type = container.serialize_type()
+    match container.get_element_fields():
+        case Err(e):
+            LOGGER.warn(e)
+            return message_type_msg
+        case Ok(f):
+            field_types = f
+    message_type_msg.fields = [
+        NodeIO(key=field_name, type=field_container.serialize_type())
+        for field_name, field_container in field_types.items()
+    ]
+    return message_type_msg
 
 
 class PackageManager(object):
@@ -182,10 +212,9 @@ class PackageManager(object):
 
         Uses a similar strategy to rosmsg/rossrv to detect message/service files.
         """
+
         if self.message_list_pub is None:
-            rclpy.logging.get_logger("package_manager").warn(
-                "No callback for publishing message list data provided."
-            )
+            LOGGER.warn("No callback for publishing message list data provided.")
             return
 
         message_types = MessageTypes()
@@ -200,7 +229,10 @@ class PackageManager(object):
             packages
         ).items():
             for message in package_messages:
-                message_types.topics.append(package + "/" + message)
+                message_type = rosidl_runtime_py.utilities.get_message(
+                    package + "/" + message
+                )
+                message_types.topics.append(data_type_to_message_type(message_type))
         for package, package_services in rosidl_runtime_py.get_service_interfaces(
             packages
         ).items():
@@ -234,7 +266,7 @@ class PackageManager(object):
                 try:
                     return obj.tolist()
                 except AttributeError:
-                    rclpy.logging.get_logger("package_manager").warn(
+                    LOGGER.warn(
                         f"Object of type {obj.__class__.__name__} can't be serialized properly"
                     )
                     return str(obj)
@@ -272,9 +304,7 @@ class PackageManager(object):
 
     def publish_packages_list(self):
         if self.packages_list_pub is None:
-            rclpy.logging.get_logger("package_manager").warn(
-                "No callback for publishing packages list data provided."
-            )
+            LOGGER.warn("No callback for publishing packages list data provided.")
             return
         self.package_paths = []
         list_of_packages = Packages()
@@ -413,7 +443,7 @@ class PackageManager(object):
             for class_name, node_classes in nodes.items():
                 for node_class in node_classes:
                     if not node_class._node_config:
-                        rclpy.logging.get_logger("get_available_nodes").warn(
+                        LOGGER.warn(
                             f"Node class: {node_class.__name__} does not have node config!"
                         )
                         continue
