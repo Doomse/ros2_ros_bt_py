@@ -838,6 +838,7 @@ class DictType(IterableContainer[dict[str, Any]]):
 
 IDENTIFIER_KEY = "type_identifier"
 ELEMENT_KEY = "element_type"
+MESSAGE_KEY = "ros_msg_type"
 BUILTIN_TYPE_MAP: dict[type, dict] = {
     bool: {IDENTIFIER_KEY: NodeDataType.BOOL_TYPE},
     int: {
@@ -880,6 +881,10 @@ def get_iotype_for_dict(value_dict: dict) -> Result[DataContainer, str]:
     `deserialize_value` if you want to parse the value that was passed in.
     """
     try:
+        if value_dict[IDENTIFIER_KEY] == NodeDataType.ROS_INTERFACE_VALUE:
+            return get_ros_msg_type(
+                rosidl_runtime_py.utilities.get_message(value_dict[MESSAGE_KEY])
+            )
         io_class = None
         for io_type in CONCRETE_IO_TYPES:
             if io_type.type_identifier == value_dict[IDENTIFIER_KEY]:
@@ -977,7 +982,7 @@ class BuiltinType(TypeContainerMixin, BuiltinContainer[dict]):
     """
 
     type_identifier = NodeDataType.BUILTIN_TYPE
-    _value = BUILTIN_TYPE_MAP[int]
+    _value = list(BUILTIN_TYPE_MAP.values())[0]
     _type = dict
     valid_types: list[type]
 
