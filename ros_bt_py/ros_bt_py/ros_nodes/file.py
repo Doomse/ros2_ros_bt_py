@@ -31,11 +31,18 @@ import yaml
 
 from ros_bt_py.vendor.result import Result, Ok, Err
 
+from ros_bt_py.data_types import (
+    BoolType,
+    DictType,
+    IntType,
+    ListType,
+    PathType,
+    StringType,
+)
 from ros_bt_py.exceptions import BehaviorTreeException
 from ros_bt_py.helpers import BTNodeState
 from ros_bt_py.node import Leaf, define_bt_node
 from ros_bt_py.node_config import NodeConfig
-from ros_bt_py.custom_types import FilePath
 
 
 class LoadFileError(Exception):
@@ -76,19 +83,17 @@ def load_file(path):
 @define_bt_node(
     NodeConfig(
         version="0.1.0",
-        options={"file_path": FilePath},
-        inputs={},
+        inputs={"file_path": PathType()},
         outputs={
-            "load_success": bool,
-            "load_error_msg": str,
-            "content": list,
-            "line_count": int,
+            "load_success": BoolType(),
+            "load_error_msg": StringType(),
+            "content": ListType(),
+            "line_count": IntType(),
         },
         max_children=0,
-        optional_options=["something"],
     )
 )
-class YamlListOption(Leaf):
+class YamlList(Leaf):
     """
     Load a yaml file from the location pointed to by `file_path`.
 
@@ -101,26 +106,50 @@ class YamlListOption(Leaf):
             error_msg = f"{self.name} has no reference to ROS node!"
             self.logerr(error_msg)
             return Err(BehaviorTreeException(error_msg))
-        self.data = None
-        self.outputs["load_success"] = False
-        self.outputs["load_error_msg"] = ""
-
-        try:
-            data = load_file(self.options["file_path"].path)
-            if data and isinstance(data, list):
-                self.outputs["load_success"] = True
-                self.data = data
-            else:
-                self.outputs["load_error_msg"] = "Yaml file should be a list"
-        except LoadFileError as ex:
-            self.outputs["load_error_msg"] = str(ex)
+        self.last_load_success = False
         return Ok(BTNodeState.IDLE)
 
     def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        if self.data is not None:
-            self.outputs["content"] = self.data
-            self.outputs["line_count"] = len(self.data)
+        match self.inputs.any_updated("file_path"):
+            case Err(e):
+                return Err(e)
+            case Ok(b):
+                updated = b
+        if not updated:
+            if self.last_load_success:
+                return Ok(BTNodeState.SUCCEEDED)
+            return Ok(BTNodeState.FAILED)
 
+        match self.inputs.get_value_as("file_path", str):
+            case Err(e):
+                return Err(e)
+            case Ok(p):
+                file_path = p
+        outputs = {}
+        try:
+            data = load_file(file_path)
+            if data and isinstance(data, list):
+                outputs["load_success"] = True
+                outputs["load_error_msg"] = ""
+                outputs["content"] = data
+                outputs["line_count"] = len(data)
+                self.last_load_success = True
+            else:
+                outputs["load_success"] = False
+                outputs["load_error_msg"] = "Yaml file should be a list"
+                self.last_load_success = False
+        except LoadFileError as ex:
+            outputs["load_success"] = False
+            outputs["load_error_msg"] = str(ex)
+            self.last_load_success = False
+
+        match self.outputs.set_multiple_values(**outputs):
+            case Err(e):
+                return Err(e)
+            case Ok(None):
+                pass
+
+        if self.last_load_success:
             return Ok(BTNodeState.SUCCEEDED)
         return Ok(BTNodeState.FAILED)
 
@@ -128,6 +157,7 @@ class YamlListOption(Leaf):
         return Ok(BTNodeState.IDLE)
 
     def _do_reset(self) -> Result[BTNodeState, BehaviorTreeException]:
+        self.last_load_success = False
         return Ok(BTNodeState.IDLE)
 
     def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
@@ -137,77 +167,16 @@ class YamlListOption(Leaf):
 @define_bt_node(
     NodeConfig(
         version="0.1.0",
-        options={},
-        inputs={"file_path": str},
+        inputs={"file_path": PathType()},
         outputs={
-            "load_success": bool,
-            "load_error_msg": str,
-            "content": list,
-            "line_count": int,
+            "load_success": BoolType(),
+            "load_error_msg": StringType(),
+            "content": DictType(),
         },
         max_children=0,
     )
 )
-class YamlListInput(Leaf):
-    """
-    Load a yaml file (list) from the location pointed to by `file_path`.
-
-    This uses package:// and file:// style URIs.
-    """
-
-    def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
-        # TODO Why is this checked when we do not use the ROS node here?
-        if not self.has_ros_node:
-            error_msg = f"{self.name} has no reference to ROS node!"
-            self.logerr(error_msg)
-            return Err(BehaviorTreeException(error_msg))
-        self.data = None
-        return Ok(BTNodeState.IDLE)
-
-    def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        if self.inputs.is_updated("file_path"):
-            self.outputs["load_success"] = False
-            self.outputs["load_error_msg"] = ""
-            try:
-                data = load_file(self.inputs["file_path"])
-            except LoadFileError as ex:
-                self.outputs["load_error_msg"] = str(ex)
-                return Ok(BTNodeState.FAILED)
-
-            if data and isinstance(data, list):
-                self.data = data
-                self.outputs["load_success"] = True
-                self.outputs["content"] = self.data
-                self.outputs["line_count"] = len(self.data)
-            else:
-                self.outputs["load_error_msg"] = "Yaml file should be a list"
-
-        if self.outputs["load_success"]:
-            return Ok(BTNodeState.SUCCEEDED)
-        return Ok(BTNodeState.FAILED)
-
-    def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.IDLE)
-
-    def _do_reset(self) -> Result[BTNodeState, BehaviorTreeException]:
-        self.inputs.reset_updated()
-        self.data = None
-        return Ok(BTNodeState.IDLE)
-
-    def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return Ok(BTNodeState.SHUTDOWN)
-
-
-@define_bt_node(
-    NodeConfig(
-        version="0.1.0",
-        options={},
-        inputs={"file_path": str},
-        outputs={"load_success": bool, "load_error_msg": str, "content": dict},
-        max_children=0,
-    )
-)
-class YamlDictInput(Leaf):
+class YamlDict(Leaf):
     """
     Load a yaml file (dict) from the location pointed to by `file_path`.
 
@@ -220,26 +189,49 @@ class YamlDictInput(Leaf):
             error_msg = f"{self.name} has no reference to ROS node!"
             self.logerr(error_msg)
             return Err(BehaviorTreeException(error_msg))
-        self.data = None
+        self.last_load_success = False
         return Ok(BTNodeState.IDLE)
 
     def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        if self.inputs.is_updated("file_path"):
-            self.outputs["load_success"] = False
-            self.outputs["load_error_msg"] = ""
-            try:
-                data = load_file(self.inputs["file_path"])
-            except LoadFileError as ex:
-                self.outputs["load_error_msg"] = str(ex)
-                return Ok(BTNodeState.FAILED)
+        match self.inputs.any_updated("file_path"):
+            case Err(e):
+                return Err(e)
+            case Ok(b):
+                updated = b
+        if not updated:
+            if self.last_load_success:
+                return Ok(BTNodeState.SUCCEEDED)
+            return Ok(BTNodeState.FAILED)
 
+        match self.inputs.get_value_as("file_path", str):
+            case Err(e):
+                return Err(e)
+            case Ok(p):
+                file_path = p
+        outputs = {}
+        try:
+            data = load_file(file_path)
             if data and isinstance(data, dict):
-                self.data = data
-                self.outputs["load_success"] = True
-                self.outputs["content"] = self.data
+                outputs["load_success"] = True
+                outputs["load_error_msg"] = ""
+                outputs["content"] = data
+                self.last_load_success = True
             else:
-                self.outputs["load_error_msg"] = "Yaml file should be a dict"
-        if self.outputs["load_success"]:
+                outputs["load_success"] = False
+                outputs["load_error_msg"] = "Yaml file should be a list"
+                self.last_load_success = False
+        except LoadFileError as ex:
+            outputs["load_success"] = False
+            outputs["load_error_msg"] = str(ex)
+            self.last_load_success = False
+
+        match self.outputs.set_multiple_values(**outputs):
+            case Err(e):
+                return Err(e)
+            case Ok(None):
+                pass
+
+        if self.last_load_success:
             return Ok(BTNodeState.SUCCEEDED)
         return Ok(BTNodeState.FAILED)
 
@@ -247,8 +239,7 @@ class YamlDictInput(Leaf):
         return Ok(BTNodeState.IDLE)
 
     def _do_reset(self) -> Result[BTNodeState, BehaviorTreeException]:
-        self.inputs.reset_updated()
-        self.data = None
+        self.last_load_success = False
         return Ok(BTNodeState.IDLE)
 
     def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:

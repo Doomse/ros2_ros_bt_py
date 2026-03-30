@@ -32,7 +32,7 @@ import inspect
 from types import ModuleType
 from typeguard import typechecked
 
-from ros_bt_py.vendor.result import Err, Ok, Result
+from ros_bt_py.vendor.result import Err, Ok, Result, do
 
 import abc
 import importlib
@@ -266,13 +266,17 @@ class Node(object, metaclass=NodeMeta):
                 )
             self.node_config.inputs[key] = container
 
-        extra_node_config = NodeConfig(
-            inputs=self.add_extra_inputs(),
-            outputs=self.add_extra_outputs(),
-            max_children=self.node_config.max_children,
-        )
-
-        match self.node_config.extend(extra_node_config):
+        match do(
+            Ok(
+                NodeConfig(
+                    inputs=extra_inputs,
+                    outputs=extra_outputs,
+                    max_children=self.node_config.max_children,
+                )
+            )
+            for extra_inputs in self.add_extra_inputs()
+            for extra_outputs in self.add_extra_outputs()
+        ).and_then(lambda config: self.node_config.extend(config)):
             case Err(e):
                 raise e
             case Ok(None):
@@ -357,19 +361,19 @@ class Node(object, metaclass=NodeMeta):
     def get_logger(self) -> Optional[LoggingManager]:
         return self.logging_manager
 
-    def add_extra_inputs(self) -> dict[str, DataContainer]:
+    def add_extra_inputs(self) -> Result[dict[str, DataContainer], NodeConfigError]:
         """
         Return a dictionary of extra inputs that you want to add to the node config.
         This can access all original inputs, including static values if they exist.
         """
-        return {}
+        return Ok({})
 
-    def add_extra_outputs(self) -> dict[str, DataContainer]:
+    def add_extra_outputs(self) -> Result[dict[str, DataContainer], NodeConfigError]:
         """
         Return a dictionary of extra outputs that you want to add to the node config.
         This can access all original inputs, including static values if they exist.
         """
-        return {}
+        return Ok({})
 
     def setup(self) -> Result[BTNodeState, BehaviorTreeException]:
         """
@@ -443,6 +447,8 @@ class Node(object, metaclass=NodeMeta):
 
         :returns:
           The state of the node after ticking - should be `SUCCEEDED`, `FAILED` or `RUNNING`.
+          Can also return `None` to signify the node didn't perform any action,
+          which leaves the state of the node unchanged.
 
         """
         report_tick = self._dummy_report_tick()
@@ -457,12 +463,14 @@ class Node(object, metaclass=NodeMeta):
             for container in self.node_config.outputs.values():
                 container.reset_updated()
 
-            tick_result = self._do_tick()
-            if tick_result.is_ok():
-                self.state = tick_result.unwrap()
-            else:
-                self.state = BTNodeState.BROKEN
-                return tick_result
+            match self._do_tick():
+                case Err(e):
+                    self.state = BTNodeState.BROKEN
+                    return Err(e)
+                case Ok(s):
+                    new_state = s
+            if new_state is not None:
+                self.state = new_state
 
             # Inputs are updated by other nodes' outputs, i.e. some time after
             # we use them here. In some cases, inputs might be connected to
@@ -511,7 +519,7 @@ class Node(object, metaclass=NodeMeta):
 
     @abc.abstractmethod
     @typechecked
-    def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
+    def _do_tick(self) -> Result[Optional[BTNodeState], BehaviorTreeException]:
         """
         Every Node class must override this.
 

@@ -73,7 +73,7 @@ class NameSwitch(FlowControl):
             Ok(None)
             for child_name, child in self.child_map.items()
             if child_name != name
-            for _ in child.reset()
+            for _ in child.untick()
         ):
             case Err(e):
                 return Err(e)

@@ -35,7 +35,7 @@ import rclpy.logging
 from rclpy import action
 from rclpy.node import Node, Publisher
 
-from ros_bt_py.exceptions import BehaviorTreeException
+from ros_bt_py.exceptions import NodeConfigError
 from ros_bt_py_interfaces.msg import MessageChannel, MessageChannels
 
 # Type alias for ros uuids
@@ -84,10 +84,11 @@ def get_interface_name(msg_metaclass: type) -> str:
     return f"{package_name}/{message_type}/{message_name}"
 
 
-def get_message_constant_fields(message_class):
+def get_message_constant_fields(message_class) -> Result[list[str], NodeConfigError]:
     """Return all constant fields of a message as a list."""
     if inspect.isclass(message_class):
         # This is highly dependend on the ROS message class generation.
+        # TODO Seems overly convoluted, why not just check for uppercase attr names?
         members = [
             attr
             for attr in dir(message_class.__class__)
@@ -95,9 +96,9 @@ def get_message_constant_fields(message_class):
             and not callable(getattr(message_class.__class__, attr))
         ]
 
-        return members
+        return Ok(members)
     else:
-        raise BehaviorTreeException(f"{message_class} is not a ROS Message")
+        return Err(NodeConfigError(f"{message_class} is not a ROS Message"))
 
 
 def publish_message_channels(node: Node, publisher: Publisher):
