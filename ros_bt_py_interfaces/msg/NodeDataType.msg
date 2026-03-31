@@ -52,7 +52,8 @@ uint8 type_identifier
 # If the current type has a specific value type,
 # its identifier is given here as one of the constants as above.
 # This is given as a list to enable nesting.
-uint8[] value_type_identifier
+# We use uint16 here instead of uint8 to avoid weird type coersion to base64 strings in roslibjs
+uint16[] value_type_identifier
 
 bool allow_dynamic
 bool allow_static

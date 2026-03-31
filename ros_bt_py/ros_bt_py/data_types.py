@@ -26,6 +26,7 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 import abc
+import builtins
 from copy import deepcopy
 from importlib import import_module
 from inspect import getmodule
@@ -907,20 +908,12 @@ def get_iotype_for_dict(value_dict: dict) -> Result[DataContainer, str]:
 
 @typechecked
 def serialize_class(cls: type) -> str:
-    type_name = cls.__name__
-    module = getmodule(cls)
-    module_name = module.__name__ + "." if module is not None else ""
-    return module_name + type_name
+    return cls.__name__
 
 
 @typechecked
 def deserialize_class(ser_cls: str) -> Result[type, str]:
-    *mod_path, cls_name = ser_cls.split(".")
-    try:
-        module = import_module(".".join(mod_path))
-    except ValueError:
-        return Err(f"Type {ser_cls} has an invalid module path")
-    cls = getattr(module, cls_name, None)
+    cls = getattr(builtins, ser_cls, None)
     if cls is None:
         return Err(f"Type {ser_cls} can't be found")
     return Ok(cls)
