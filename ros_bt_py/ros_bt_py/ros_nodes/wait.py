@@ -25,7 +25,6 @@
 # CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
-from time import time
 
 from ros_bt_py.vendor.result import Result, Ok, Err
 
@@ -39,7 +38,7 @@ from ros_bt_py.node_config import NodeConfig
 @define_bt_node(
     NodeConfig(
         version="0.1.0",
-        inputs={"seconds_to_wait": FloatType(min_value=0)},
+        inputs={"seconds_to_wait": FloatType(allow_dynamic=False, min_value=0)},
         outputs={},
         max_children=0,
     )
@@ -55,21 +54,26 @@ class Wait(Leaf):
 
     def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
         self.first_tick = True
+        if not self.has_ros_node:
+            error_msg = f"{self.name} does not have a reference to a ROS node"
+            self.logerr(error_msg)
+            return Err(BehaviorTreeException(error_msg))
+        match self.inputs.get_value_as("seconds_to_wait", float):
+            case Err(e):
+                return Err(e)
+            case Ok(t):
+                self.wait_duration = t
         return Ok(BTNodeState.IDLE)
 
     def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        now = time()
+        now = self.ros_node.get_clock().now()
         if self.first_tick:
             self.start_time = now
-            match self.inputs.get_value_as("seconds_to_wait", float).and_then(
-                lambda val: Ok(self.start_time + val)
-            ):
-                case Err(e):
-                    return Err(e)
-                case Ok(t):
-                    self.end_time = t
             self.first_tick = False
-        if now >= self.end_time:
+        seconds_since_call: float = (
+            self.ros_node.get_clock().now() - self.start_time
+        ).nanoseconds / 1e9
+        if seconds_since_call >= self.wait_duration:
             return Ok(BTNodeState.SUCCEEDED)
         else:
             return Ok(BTNodeState.RUNNING)
