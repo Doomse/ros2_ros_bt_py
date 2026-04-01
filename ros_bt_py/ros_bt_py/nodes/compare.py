@@ -63,7 +63,7 @@ class Compare(Leaf):
             Ok(a == b)
             for a in self.inputs.get_value("a")
             for b in self.inputs.get_value("b")
-        ).and_then(lambda res: Ok(BTNodeState.SUCCEEDED if res else BTNodeState.FAILED))
+        ).map(lambda res: BTNodeState.SUCCEEDED if res else BTNodeState.FAILED)
 
     def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
         # Nothing to do
@@ -112,7 +112,7 @@ class CompareNewOnly(Leaf):
             Ok(a == b)
             for a in self.inputs.get_value("a")
             for b in self.inputs.get_value("b")
-        ).and_then(lambda res: Ok(BTNodeState.SUCCEEDED if res else BTNodeState.FAILED))
+        ).map(lambda res: BTNodeState.SUCCEEDED if res else BTNodeState.FAILED)
 
     def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
         # Nothing to do
@@ -158,7 +158,7 @@ class ALessThanB(Leaf):
             Ok(a < b)
             for a in self.inputs.get_value("a")
             for b in self.inputs.get_value("b")
-        ).and_then(lambda res: Ok(BTNodeState.SUCCEEDED if res else BTNodeState.FAILED))
+        ).map(lambda res: BTNodeState.SUCCEEDED if res else BTNodeState.FAILED)
 
     def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
         # Nothing to do

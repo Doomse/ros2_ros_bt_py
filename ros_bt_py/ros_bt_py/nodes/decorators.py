@@ -52,8 +52,8 @@ class IgnoreFailure(Decorator):
 
     def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
         for child in self.children:
-            return child.tick().and_then(
-                lambda state: Ok(
+            return child.tick().map(
+                lambda state: (
                     BTNodeState.SUCCEEDED if state == BTNodeState.FAILED else state
                 )
             )
@@ -98,8 +98,8 @@ class IgnoreRunning(Decorator):
 
     def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
         for child in self.children:
-            return child.tick().and_then(
-                lambda state: Ok(
+            return child.tick().map(
+                lambda state: (
                     state
                     if state != BTNodeState.RUNNING
                     else (
@@ -143,8 +143,8 @@ class IgnoreSuccess(Decorator):
 
     def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
         for child in self.children:
-            return child.tick().and_then(
-                lambda state: Ok(
+            return child.tick().map(
+                lambda state: (
                     BTNodeState.FAILED if state == BTNodeState.SUCCEEDED else state
                 )
             )
@@ -184,13 +184,14 @@ class UntilSuccess(Decorator):
 
     def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
         for child in self.children:
-            # TODO Should this issue a reset to the child if it failed?
-            return child.tick().and_then(
-                lambda state: Ok(
-                    BTNodeState.RUNNING if state == BTNodeState.FAILED else state
-                )
-            )
-
+            match child.tick():
+                case Err(e):
+                    return Err(e)
+                case Ok(s):
+                    state = s
+            if state == BTNodeState.FAILED:
+                return child.reset().map(lambda _: BTNodeState.RUNNING)
+            return Ok(state)
         # Succeed if we have no children
         return Ok(BTNodeState.SUCCEEDED)
 
@@ -226,11 +227,11 @@ class Inverter(Decorator):
 
     def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
         for child in self.children:
-            return child.tick().and_then(
-                lambda state: Ok(
+            return child.tick().map(
+                lambda state: (
                     BTNodeState.SUCCEEDED
                     if state == BTNodeState.FAILED
-                    else BTNodeState.SUCCEEDED if state == BTNodeState.FAILED else state
+                    else BTNodeState.FAILED if state == BTNodeState.SUCCEEDED else state
                 )
             )
 
@@ -290,7 +291,7 @@ class Retry(Decorator):
             if state == BTNodeState.FAILED:
                 if self._retry_count < self._retry_limit:
                     self._retry_count += 1
-                    return child.reset().and_then(lambda _: Ok(BTNodeState.RUNNING))
+                    return child.reset().map(lambda _: BTNodeState.RUNNING)
                 else:
                     self._retry_count = 0
                     return Ok(BTNodeState.FAILED)
@@ -354,7 +355,7 @@ class Repeat(Decorator):
             if state == BTNodeState.SUCCEEDED:
                 if self._repeat_count < self._num_repeats:
                     self._repeat_count += 1
-                    return child.reset().and_then(lambda _: Ok(BTNodeState.RUNNING))
+                    return child.reset().map(lambda _: BTNodeState.RUNNING)
                 else:
                     return Ok(BTNodeState.SUCCEEDED)
             return Ok(state)
@@ -420,7 +421,7 @@ class RepeatNoAutoReset(Repeat):
                 if state == BTNodeState.SUCCEEDED:
                     if self._repeat_count < self._num_repeats:
                         self._repeat_count += 1
-                        return child.reset().and_then(lambda _: Ok(BTNodeState.RUNNING))
+                        return child.reset().map(lambda _: BTNodeState.RUNNING)
                     else:
                         return Ok(BTNodeState.SUCCEEDED)
                 return Ok(state)
@@ -460,9 +461,11 @@ class RepeatAlways(Decorator):
                 case Ok(s):
                     state = s
             if state != BTNodeState.RUNNING:
-                reset_result = child.reset()
-                if reset_result.is_err():
-                    return reset_result
+                match child.reset():
+                    case Err(e):
+                        return Err(e)
+                    case Ok(_):
+                        pass
             return Ok(BTNodeState.RUNNING)
 
         # Succeed if we have no children
@@ -507,7 +510,7 @@ class RepeatUntilFail(Decorator):
                 case Ok(s):
                     state = s
             if state == BTNodeState.SUCCEEDED:
-                return child.reset().and_then(lambda _: Ok(BTNodeState.RUNNING))
+                return child.reset().map(lambda _: BTNodeState.RUNNING)
             return Ok(state)
 
         # Succeed if we have no children
@@ -552,7 +555,7 @@ class RepeatIfFail(Decorator):
                 case Ok(s):
                     state = s
             if state == BTNodeState.FAILED:
-                return child.reset().and_then(lambda _: Ok(BTNodeState.RUNNING))
+                return child.reset().map(lambda _: BTNodeState.RUNNING)
             return Ok(state)
 
         # Succeed if we have no children
@@ -649,7 +652,6 @@ class Watch(Decorator):
     """Untick child if watch string changed."""
 
     def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
-        self.previous_watch = float("NaN")
         for child in self.children:
             return child.setup()
         return Ok(BTNodeState.IDLE)
@@ -658,36 +660,31 @@ class Watch(Decorator):
         if len(self.children) == 0:
             return Ok(BTNodeState.SUCCEEDED)
 
-        match self.inputs.get_value_as("watch", str):
+        match self.inputs.any_updated("watch"):
             case Err(e):
                 return Err(e)
-            case Ok(s):
-                watch_str = s
+            case Ok(b):
+                updated = b
 
         child = self.children[0]
-        if self.previous_watch != watch_str:
+        if updated:
             match child.untick():
                 case Err(e):
                     return Err(e)
                 case Ok(_):
                     pass
-            self.previous_watch = watch_str
 
         return self.children[0].tick()
 
     def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
-        self.previous_watch = float("NaN")
         return Ok(BTNodeState.SHUTDOWN)
 
     def _do_reset(self) -> Result[BTNodeState, BehaviorTreeException]:
-        self.previous_watch = float("NaN")
         for child in self.children:
             return child.reset()
         return Ok(BTNodeState.IDLE)
 
     def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        # TODO Should this really be reset on untick?
-        self.previous_watch = float("NaN")
         for child in self.children:
             return child.untick()
         return Ok(BTNodeState.IDLE)

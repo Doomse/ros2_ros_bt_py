@@ -67,15 +67,7 @@ class RosParam(Leaf):
             return Err(BehaviorTreeException(error_msg))
         return Ok(BTNodeState.IDLE)
 
-    def _do_tick(self) -> Result[Optional[BTNodeState], BehaviorTreeException]:
-        match self.inputs.any_updated("param_name", "default_value"):
-            case Err(e):
-                return Err(e)
-            case Ok(b):
-                updated = b
-        if not updated:
-            return Ok(None)
-
+    def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
         match self.inputs.get_value_as("param_name", str):
             case Err(e):
                 return Err(e)
@@ -135,14 +127,6 @@ class RosListParam(Leaf):
         return Ok(BTNodeState.IDLE)
 
     def _do_tick(self) -> Result[Optional[BTNodeState], BehaviorTreeException]:
-        match self.inputs.any_updated("param_name", "default_value"):
-            case Err(e):
-                return Err(e)
-            case Ok(b):
-                updated = b
-        if not updated:
-            return Ok(None)
-
         match self.inputs.get_value_as("param_name", str):
             case Err(e):
                 return Err(e)

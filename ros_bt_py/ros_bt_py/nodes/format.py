@@ -96,7 +96,7 @@ class StringConcatenation(Leaf):
                 for b in self.inputs.get_value_as("b", str)
             )
             .and_then(lambda val: self.outputs.set_value("formatted_string", val))
-            .and_then(lambda _: Ok(BTNodeState.SUCCEEDED))
+            .map(lambda _: BTNodeState.SUCCEEDED)
         )
 
     def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
@@ -144,7 +144,7 @@ class FormatString(Leaf):
                     for d in self.inputs.get_value_as("dict", dict)
                 )
                 .and_then(lambda val: self.outputs.set_value("formatted_string", val))
-                .and_then(lambda _: Ok(BTNodeState.SUCCEEDED))
+                .map(lambda _: BTNodeState.SUCCEEDED)
             )
         except Exception:
             # TODO Shouldn't this return an error instead of just failed?
@@ -198,7 +198,7 @@ class FormatStringList(Leaf):
                     for d in self.inputs.get_value_as("dict", dict)
                 )
                 .and_then(lambda val: self.outputs.set_value("formatted_strings", val))
-                .and_then(lambda _: Ok(BTNodeState.SUCCEEDED))
+                .map(lambda _: BTNodeState.SUCCEEDED)
             )
         except Exception:
             # TODO Shouldn't this return an error instead of just failed?
@@ -229,27 +229,16 @@ class GetFileExtension(Leaf):
         return Ok(BTNodeState.IDLE)
 
     def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        match self.inputs.any_updated("path"):
-            case Err(e):
-                return Err(e)
-            case Ok(b):
-                updated = b
-
-        if updated:
-            return (
-                do(
-                    Ok(os.path.splitext(p))
-                    for p in self.inputs.get_value_as("path", str)
+        return (
+            do(Ok(os.path.splitext(p)) for p in self.inputs.get_value_as("path", str))
+            .and_then(
+                lambda fname_ext: self.outputs.set_multiple_values(
+                    filename=fname_ext[0],
+                    extension=fname_ext[1],
                 )
-                .and_then(
-                    lambda fname_ext: self.outputs.set_multiple_values(
-                        filename=fname_ext[0],
-                        extension=fname_ext[1],
-                    )
-                )
-                .and_then(lambda _: Ok(BTNodeState.SUCCEEDED))
             )
-        return Ok(BTNodeState.SUCCEEDED)
+            .map(lambda _: BTNodeState.SUCCEEDED)
+        )
 
     def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
         return Ok(BTNodeState.IDLE)

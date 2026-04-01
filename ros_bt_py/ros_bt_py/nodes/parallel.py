@@ -348,22 +348,14 @@ class ParallelFailureTolerance(FlowControl):
         return Ok(BTNodeState.SHUTDOWN)
 
     def _do_reset(self) -> Result[BTNodeState, BehaviorTreeException]:
-        for child in self.children:
-            match child.reset():
-                case Err(e):
-                    return Err(e)
-                case Ok(_):
-                    pass
-        return Ok(BTNodeState.IDLE)
+        return do(
+            Ok(BTNodeState.IDLE) for child in self.children for _ in child.reset()
+        )
 
     def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        for child in self.children:
-            match child.untick():
-                case Err(e):
-                    return Err(e)
-                case Ok(_):
-                    pass
-        return Ok(BTNodeState.IDLE)
+        return do(
+            Ok(BTNodeState.IDLE) for child in self.children for _ in child.untick()
+        )
 
     def _do_calculate_utility(self) -> Result[UtilityBounds, BehaviorTreeException]:
         if len(self.children) < self._needed_successes:

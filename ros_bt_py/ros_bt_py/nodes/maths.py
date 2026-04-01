@@ -121,7 +121,7 @@ class Convert(Leaf):
         return (
             self.inputs.get_value_as("in", self.in_type)
             .and_then(lambda val: self.outputs.set_value("out", self.conversion(val)))
-            .and_then(lambda _: Ok(BTNodeState.SUCCEEDED))
+            .map(lambda _: BTNodeState.SUCCEEDED)
         )
 
     def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
@@ -210,7 +210,7 @@ class Operation(Leaf):
                 for b in self.inputs.get_value("b")
             )
             .and_then(lambda val: self.outputs.set_value("result", val))
-            .and_then(lambda _: Ok(BTNodeState.SUCCEEDED))
+            .map(lambda _: BTNodeState.SUCCEEDED)
         )
 
     def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
@@ -310,7 +310,7 @@ class UnaryOperation(Leaf):
                 for i in self.inputs.get_value("in")
             )
             .and_then(lambda val: self.outputs.set_value("result", val))
-            .and_then(lambda _: Ok(BTNodeState.SUCCEEDED))
+            .map(lambda _: BTNodeState.SUCCEEDED)
         )
 
     def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:

@@ -53,7 +53,7 @@ class Wait(Leaf):
     """
 
     def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
-        self.first_tick = True
+        self.start_time = None
         if not self.has_ros_node:
             error_msg = f"{self.name} does not have a reference to a ROS node"
             self.logerr(error_msg)
@@ -67,9 +67,8 @@ class Wait(Leaf):
 
     def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
         now = self.ros_node.get_clock().now()
-        if self.first_tick:
+        if self.start_time is None:
             self.start_time = now
-            self.first_tick = False
         seconds_since_call: float = (
             self.ros_node.get_clock().now() - self.start_time
         ).nanoseconds / 1e9
@@ -79,11 +78,10 @@ class Wait(Leaf):
             return Ok(BTNodeState.RUNNING)
 
     def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
-        self.first_tick = True
         return Ok(BTNodeState.SHUTDOWN)
 
     def _do_reset(self) -> Result[BTNodeState, BehaviorTreeException]:
-        self.first_tick = True
+        self.start_time = None
         return Ok(BTNodeState.IDLE)
 
     def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:

@@ -58,12 +58,9 @@ class GetTimeNow(Leaf):
 
     def _do_tick(self) -> Result[Optional[BTNodeState], BehaviorTreeException]:
         current_time = self.ros_node.get_clock().now()
-        match self.outputs.set_value("current_time", current_time.to_msg()):
-            case Err(e):
-                return Err(e)
-            case Ok(None):
-                pass
-        return Ok(BTNodeState.SUCCEEDED)
+        return self.outputs.set_value("current_time", current_time.to_msg()).map(
+            lambda _: BTNodeState.SUCCEEDED
+        )
 
     def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
         return Ok(BTNodeState.SHUTDOWN)

@@ -59,7 +59,7 @@ class ListLength(Leaf):
         return (
             self.inputs.get_value_as("list", list)
             .and_then(lambda li: self.outputs.set_value("length", len(li)))
-            .and_then(lambda _: Ok(BTNodeState.SUCCEEDED))
+            .map(lambda _: BTNodeState.SUCCEEDED)
         )
 
     def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
@@ -92,28 +92,20 @@ class InsertInList(Leaf):
         return Ok(BTNodeState.IDLE)
 
     def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        match self.inputs.any_updated("list", "index", "element"):
-            case Err(e):
-                return Err(e)
-            case Ok(b):
-                updated = b
+        def insert_and_return(li: list, index: int, val):
+            li.insert(index, val)
+            return li
 
-        match do(
-            Ok(li.insert(i, e))
-            for li in self.inputs.get_value_as("list", list)
-            for i in self.inputs.get_value_as("index", int)
-            for e in self.inputs.get_value("element")
-        ):
-            case Err(e):
-                return Err(e)
-            case Ok(l):
-                out_list = l
-
-        if updated:
-            return self.outputs.set_value("list", out_list).and_then(
-                lambda _: Ok(BTNodeState.SUCCEEDED)
+        return (
+            do(
+                Ok(insert_and_return(li, i, e))
+                for li in self.inputs.get_value_as("list", list)
+                for i in self.inputs.get_value_as("index", int)
+                for e in self.inputs.get_value("element")
             )
-        return Ok(BTNodeState.SUCCEEDED)
+            .and_then(lambda val: self.outputs.set_value("list", val))
+            .map(lambda _: BTNodeState.SUCCEEDED)
+        )
 
     def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
         return Ok(BTNodeState.SHUTDOWN)
@@ -152,7 +144,7 @@ class IsInList(Leaf):
             Ok(e in li)
             for e in self.inputs.get_value("in")
             for li in self.inputs.get_value_as("list", list)
-        ).and_then(lambda res: Ok(BTNodeState.SUCCEEDED if res else BTNodeState.FAILED))
+        ).map(lambda res: BTNodeState.SUCCEEDED if res else BTNodeState.FAILED)
 
     def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
         return Ok(BTNodeState.IDLE)

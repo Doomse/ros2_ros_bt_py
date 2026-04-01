@@ -59,7 +59,7 @@ class RandomInt(Leaf):
                 for _ in validate_range(mi, ma)
             )
             .and_then(lambda val: self.outputs.set_value("random_number", val))
-            .and_then(lambda _: Ok(BTNodeState.SUCCEEDED))
+            .map(lambda _: BTNodeState.SUCCEEDED)
         )
 
     def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
@@ -74,16 +74,10 @@ class RandomInt(Leaf):
 
 def validate_range(minimum, maximum) -> Result[None, BehaviorTreeException]:
     """Check if `minimum` < `maximum` and raises a BehaviorTreeException if not."""
-    if minimum == maximum:
+    if minimum >= maximum:
         return Err(
             BehaviorTreeException(
-                f"minimum ({minimum}) cannot be equal to maximum ({maximum})"
-            )
-        )
-    if minimum > maximum:
-        return Err(
-            BehaviorTreeException(
-                f"minimum ({minimum}) cannot be greater that maximum ({maximum})"
+                f"minimum ({minimum}) cannot be equal or greater than maximum ({maximum})"
             )
         )
     return Ok(None)

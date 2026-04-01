@@ -99,8 +99,7 @@ class Sequence(FlowControl):
             if state != BTNodeState.SUCCEEDED:
                 # For all states other than RUNNING...
                 if state != BTNodeState.RUNNING:
-                    # ...untick all children after the one that hasn't
-                    # succeeded
+                    # ...untick all children after the one that hasn't succeeded
                     for untick_child in self.children[index + 1 :]:
                         match untick_child.untick():
                             case Err(e):

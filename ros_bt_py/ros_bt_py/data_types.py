@@ -32,7 +32,7 @@ from importlib import import_module
 from inspect import getmodule
 import json
 import re
-from typing import Any, Generic, Optional, Protocol, Self, TypeGuard, TypeVar
+from typing import Any, Generic, Iterable, Optional, Protocol, Self, TypeGuard, TypeVar
 from typeguard import typechecked
 
 from ros_bt_py.helpers import INT_LIMITS, FLOAT_LIMITS, INT_FLOAT_MAX
@@ -194,8 +194,14 @@ class DataContainer(Generic[ANY], abc.ABC):
         """
         if self.is_static and self._updated:
             return Err("Static value was already assigned")
+        # Only set `_updated` if the new value is different from the old
+        has_changed: bool | Iterable[bool] = self._value == value
+        # Since we potentially handle numpy arrays, we have to account for `==`
+        #   returing an iterable of bools rather than a single bool
+        if isinstance(has_changed, Iterable):
+            has_changed = all(has_changed)
+        self._updated = has_changed
         self._value = value
-        self._updated = True
         return Ok(None)
 
     @typechecked

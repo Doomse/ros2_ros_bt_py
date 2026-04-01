@@ -107,7 +107,7 @@ class GetListItem(Getter):
     Extracts the item at the given `index` from `list`.
 
     The option parameter `succeed_on_stale_data` determines whether
-    the node returns SUCCEEDED or RUNNING if `list` hasn't been
+    the node returns SUCCEEDED or RUNNING if `list` or `index` haven't been
     updated since the last tick.
 
     """
@@ -141,18 +141,14 @@ class GetListItem(Getter):
             self.logerr(str(e))
             return Ok(BTNodeState.FAILED)
 
-        if updated:
-            return self.outputs.set_value("item", out).and_then(
-                lambda _: Ok(BTNodeState.SUCCEEDED)
+        if updated or self.succeed_on_stale_data:
+            # Always set output when we return succeeded
+            return self.outputs.set_value("item", out).map(
+                lambda _: BTNodeState.SUCCEEDED
             )
         else:
-            if self.succeed_on_stale_data:
-                # We don't need to check whether we have gotten any data at all,
-                #   because if we hadn't the `do` call before would've failed.
-                return Ok(BTNodeState.SUCCEEDED)
-            else:
-                self.loginfo("No new data since last tick!")
-                return Ok(BTNodeState.RUNNING)
+            self.loginfo("No new data since last tick!")
+            return Ok(BTNodeState.RUNNING)
 
 
 @define_bt_node(
@@ -199,18 +195,14 @@ class GetDictItem(Getter):
             self.logwarn(str(e))
             return Ok(BTNodeState.FAILED)
 
-        if updated:
-            return self.outputs.set_value("value", out).and_then(
-                lambda _: Ok(BTNodeState.SUCCEEDED)
+        if updated or self.succeed_on_stale_data:
+            # Always set output when returning succeeded
+            return self.outputs.set_value("value", out).map(
+                lambda _: BTNodeState.SUCCEEDED
             )
         else:
-            if self.succeed_on_stale_data:
-                # We don't need to check whether we have gotten any data at all,
-                #   because if we hadn't the `do` call before would've failed.
-                return Ok(BTNodeState.SUCCEEDED)
-            else:
-                self.loginfo("No new data since last tick!")
-                return Ok(BTNodeState.RUNNING)
+            self.loginfo("No new data since last tick!")
+            return Ok(BTNodeState.RUNNING)
 
 
 @define_bt_node(
@@ -257,18 +249,13 @@ class GetMultipleDictItems(Getter):
             self.logwarn(str(e))
             return Ok(BTNodeState.FAILED)
 
-        if updated:
-            return self.outputs.set_value("values", out_list).and_then(
-                lambda _: Ok(BTNodeState.SUCCEEDED)
+        if updated or self.succeed_on_stale_data:
+            return self.outputs.set_value("values", out_list).map(
+                lambda _: BTNodeState.SUCCEEDED
             )
         else:
-            if self.succeed_on_stale_data:
-                # We don't need to check whether we have gotten any data at all,
-                #   because if we hadn't the `do` call before would've failed.
-                return Ok(BTNodeState.SUCCEEDED)
-            else:
-                self.loginfo("No new data since last tick!")
-                return Ok(BTNodeState.RUNNING)
+            self.loginfo("No new data since last tick!")
+            return Ok(BTNodeState.RUNNING)
 
 
 @define_bt_node(
@@ -324,15 +311,10 @@ class GetAttr(Getter):
             self.logwarn(str(e))
             return Ok(BTNodeState.FAILED)
 
-        if updated:
-            return self.outputs.set_value("attr", out).and_then(
-                lambda _: Ok(BTNodeState.SUCCEEDED)
+        if updated or self.succeed_on_stale_data:
+            return self.outputs.set_value("attr", out).map(
+                lambda _: BTNodeState.SUCCEEDED
             )
         else:
-            if self.succeed_on_stale_data:
-                # We don't need to check whether we have gotten any data at all,
-                #   because if we hadn't the `do` call before would've failed.
-                return Ok(BTNodeState.SUCCEEDED)
-            else:
-                self.loginfo("No new data since last tick!")
-                return Ok(BTNodeState.RUNNING)
+            self.loginfo("No new data since last tick!")
+            return Ok(BTNodeState.RUNNING)

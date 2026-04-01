@@ -58,7 +58,7 @@ class IO(Leaf):
 
     @abc.abstractmethod
     def _abstract_flag(self):
-        # This is used to prevent the common base class from being picked up as valid
+        # This is used to prevent the common base class from being picked up as a valid node
         pass
 
     def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
@@ -69,7 +69,7 @@ class IO(Leaf):
             self.inputs.get_value("in")
             .or_else(lambda _: self.inputs.get_value("default"))
             .and_then(lambda val: self.outputs.set_value("out", val))
-            .and_then(lambda _: Ok(BTNodeState.SUCCEEDED))
+            .map(lambda _: BTNodeState.SUCCEEDED)
         )
 
     def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:

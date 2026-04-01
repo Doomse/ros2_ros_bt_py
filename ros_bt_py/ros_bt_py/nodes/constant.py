@@ -66,7 +66,7 @@ class Constant(Leaf):
         return (
             self.inputs.get_value("constant_value")
             .and_then(lambda val: self.outputs.set_value("constant", val))
-            .and_then(lambda _: Ok(BTNodeState.SUCCEEDED))
+            .map(lambda _: BTNodeState.SUCCEEDED)
         )
 
     def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:

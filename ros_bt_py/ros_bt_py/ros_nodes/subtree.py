@@ -82,11 +82,7 @@ class Subtree(Leaf):
     """
 
     manager: TreeExecManager
-    is_set_up: bool
-
-    def __init__(self, *args, **kwargs) -> None:
-        self.is_set_up = False
-        super().__init__()
+    is_set_up = False
 
     def setup_node(self) -> Result[None, NodeConfigError]:
         if not self.has_ros_node:
@@ -158,12 +154,9 @@ class Subtree(Leaf):
         )
 
         if not response.success:
-            self.logwarn(
-                f"Failed to load subtree {self.name}: {response.error_message}"
-            )
-            # TODO Should this be flagged as broken, since we convey load failure as an output
-            #   Suggesting that it is intended behaviour and not an error.
-            self.state = BTNodeState.BROKEN
+            error_msg = f"Failed to load subtree {self.name}: {response.error_message}"
+            self.logwarn(error_msg)
+            return Err(NodeConfigError(error_msg))
 
         return Ok(None)
 
@@ -196,16 +189,17 @@ class Subtree(Leaf):
         for node in self.manager.nodes:
             if not isinstance(node, IOOutput):
                 continue
-            node_outputs[f"{str(node.node_id)}.in"] = node.node_config.inputs[
-                "in"
+            node_outputs[f"{str(node.node_id)}.out"] = node.node_config.inputs[
+                "out"
             ].get_runtime_type()
         return Ok(node_outputs)
 
     def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
-        find_root_result = self.manager.find_root()
-        if find_root_result.is_err():
-            return Err(find_root_result.unwrap_err())
-        self.root = find_root_result.unwrap()
+        match self.manager.find_root():
+            case Err(e):
+                return Err(e)
+            case Ok(n):
+                self.root = n
         if self.root is None:
             return Ok(BTNodeState.IDLE)
         setup_root_result = self.root.setup()

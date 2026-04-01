@@ -49,7 +49,6 @@ from ros_bt_py.exceptions import BehaviorTreeException, NodeConfigError
 from ros_bt_py.helpers import BTNodeState
 from ros_bt_py.node import Leaf, define_bt_node
 from ros_bt_py.node_config import NodeConfig
-from ros_bt_py.ros_helpers import get_message_field_type
 
 from ros_bt_py_interfaces.msg import UtilityBounds
 
@@ -524,7 +523,7 @@ class Action(Leaf):
     _action_client: Optional[ActionClient] = None
     _feedback = None
 
-    _internal_state = ActionStates.IDLE
+    _internal_state: ActionStates
 
     def add_extra_inputs(self) -> Result[dict[str, DataContainer], NodeConfigError]:
         match self.inputs.get_value("action_type"):
@@ -786,7 +785,8 @@ class Action(Leaf):
                 return Err(e)
             case Ok(b):
                 updated = b
-        if updated:
+        # If the current state is idle, this is the first tick after setup, reset or untick
+        if updated or self.state == BTNodeState.IDLE:
             self._input_goal = self._goal_type()
             for key in self._goal_fields:
                 match self.inputs.get_value(key):
@@ -794,6 +794,10 @@ class Action(Leaf):
                         return Err(e)
                     case Ok(v):
                         setattr(self._input_goal, key, v)
+        if updated and self._internal_state not in [
+            ActionStates.IDLE,
+            ActionStates.FINISHED,
+        ]:
             self._internal_state = ActionStates.REQUEST_GOAL_CANCELLATION
 
         if self._action_client is None:

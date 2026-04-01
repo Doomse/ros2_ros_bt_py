@@ -89,18 +89,10 @@ class EnumFields(Leaf):
         self.first_tick = True
         return Ok(BTNodeState.IDLE)
 
-    def _do_tick(self) -> Result[Optional[BTNodeState], BehaviorTreeException]:
-        if not self.first_tick:
-            return Ok(None)
-        match self.outputs.set_multiple_values(
+    def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
+        return self.outputs.set_multiple_values(
             **{field: getattr(self._message_class, field) for field in self._constants}
-        ):
-            case Err(e):
-                return Err(e)
-            case Ok(None):
-                pass
-        self.first_tick = False
-        return Ok(BTNodeState.SUCCEEDED)
+        ).map(lambda _: BTNodeState.SUCCEEDED)
 
     def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
         return Ok(BTNodeState.IDLE)

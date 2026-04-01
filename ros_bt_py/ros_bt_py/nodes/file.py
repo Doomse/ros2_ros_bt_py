@@ -101,12 +101,7 @@ class YamlList(Leaf):
     """
 
     def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
-        # TODO Why is this checked when we do not use the ROS node here?
-        if not self.has_ros_node:
-            error_msg = f"{self.name} has no reference to ROS node!"
-            self.logerr(error_msg)
-            return Err(BehaviorTreeException(error_msg))
-        self.last_load_success = False
+        self._previous_load = False
         return Ok(BTNodeState.IDLE)
 
     def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
@@ -115,10 +110,11 @@ class YamlList(Leaf):
                 return Err(e)
             case Ok(b):
                 updated = b
-        if not updated:
-            if self.last_load_success:
-                return Ok(BTNodeState.SUCCEEDED)
-            return Ok(BTNodeState.FAILED)
+        if updated:
+            self._previous_load = False
+
+        if self._previous_load:
+            return Ok(self.state)
 
         match self.inputs.get_value_as("file_path", str):
             case Err(e):
@@ -133,15 +129,12 @@ class YamlList(Leaf):
                 outputs["load_error_msg"] = ""
                 outputs["content"] = data
                 outputs["line_count"] = len(data)
-                self.last_load_success = True
             else:
                 outputs["load_success"] = False
                 outputs["load_error_msg"] = "Yaml file should be a list"
-                self.last_load_success = False
         except LoadFileError as ex:
             outputs["load_success"] = False
             outputs["load_error_msg"] = str(ex)
-            self.last_load_success = False
 
         match self.outputs.set_multiple_values(**outputs):
             case Err(e):
@@ -149,7 +142,8 @@ class YamlList(Leaf):
             case Ok(None):
                 pass
 
-        if self.last_load_success:
+        self._previous_load = True
+        if outputs["load_success"]:
             return Ok(BTNodeState.SUCCEEDED)
         return Ok(BTNodeState.FAILED)
 
@@ -157,7 +151,7 @@ class YamlList(Leaf):
         return Ok(BTNodeState.IDLE)
 
     def _do_reset(self) -> Result[BTNodeState, BehaviorTreeException]:
-        self.last_load_success = False
+        self._previous_load = False
         return Ok(BTNodeState.IDLE)
 
     def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
@@ -184,12 +178,7 @@ class YamlDict(Leaf):
     """
 
     def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
-        # TODO Why is this checked when we do not use the ROS node here?
-        if not self.has_ros_node:
-            error_msg = f"{self.name} has no reference to ROS node!"
-            self.logerr(error_msg)
-            return Err(BehaviorTreeException(error_msg))
-        self.last_load_success = False
+        self._previous_load = False
         return Ok(BTNodeState.IDLE)
 
     def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
@@ -198,10 +187,12 @@ class YamlDict(Leaf):
                 return Err(e)
             case Ok(b):
                 updated = b
-        if not updated:
-            if self.last_load_success:
-                return Ok(BTNodeState.SUCCEEDED)
-            return Ok(BTNodeState.FAILED)
+        if updated:
+            self._previous_load = False
+
+        # If we have previously tried to load this file, there's nothing to do
+        if self._previous_load:
+            return Ok(self.state)
 
         match self.inputs.get_value_as("file_path", str):
             case Err(e):
@@ -215,15 +206,12 @@ class YamlDict(Leaf):
                 outputs["load_success"] = True
                 outputs["load_error_msg"] = ""
                 outputs["content"] = data
-                self.last_load_success = True
             else:
                 outputs["load_success"] = False
                 outputs["load_error_msg"] = "Yaml file should be a list"
-                self.last_load_success = False
         except LoadFileError as ex:
             outputs["load_success"] = False
             outputs["load_error_msg"] = str(ex)
-            self.last_load_success = False
 
         match self.outputs.set_multiple_values(**outputs):
             case Err(e):
@@ -231,7 +219,8 @@ class YamlDict(Leaf):
             case Ok(None):
                 pass
 
-        if self.last_load_success:
+        self._previous_load = True
+        if outputs["load_success"]:
             return Ok(BTNodeState.SUCCEEDED)
         return Ok(BTNodeState.FAILED)
 
@@ -239,7 +228,7 @@ class YamlDict(Leaf):
         return Ok(BTNodeState.IDLE)
 
     def _do_reset(self) -> Result[BTNodeState, BehaviorTreeException]:
-        self.last_load_success = False
+        self._previous_load = False
         return Ok(BTNodeState.IDLE)
 
     def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:

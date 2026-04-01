@@ -407,7 +407,7 @@ class Node(object, metaclass=NodeMeta):
 
             # Reset input/output reset state and set outputs to None
             for container in self.node_config.inputs.values():
-                container.reset_updated()
+                container.restore_updated()
 
             for container in self.node_config.outputs.values():
                 container.reset_value()
@@ -447,9 +447,6 @@ class Node(object, metaclass=NodeMeta):
 
         :returns:
           The state of the node after ticking - should be `SUCCEEDED`, `FAILED` or `RUNNING`.
-          Can also return `None` to signify the node didn't perform any action,
-          which leaves the state of the node unchanged.
-
         """
         report_tick = self._dummy_report_tick()
         if self.debug_manager:
@@ -519,7 +516,7 @@ class Node(object, metaclass=NodeMeta):
 
     @abc.abstractmethod
     @typechecked
-    def _do_tick(self) -> Result[Optional[BTNodeState], BehaviorTreeException]:
+    def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
         """
         Every Node class must override this.
 

@@ -101,13 +101,12 @@ class TopicSubscriber(Leaf):
                 return Err(e)
             case Ok(b):
                 updated = b
-        if updated and self._subscriber is not None:
-            # Unsubscribe from the topic so we don't receive further updates
-            if not self.ros_node.destroy_subscription(self._subscriber):
-                error_msg = "Failed to destroy subscription"
-                self.logwarn(error_msg)
-                return Err(BehaviorTreeException(error_msg))
-            self._subscriber = None
+        if updated:
+            match self._do_reset():
+                case Err(e):
+                    return Err(e)
+                case Ok(_):
+                    pass
 
         if self._subscriber is None:
             match do(
@@ -249,12 +248,12 @@ class TopicSubscriber(Leaf):
     NodeConfig(
         version="0.1.0",
         inputs={
-            "memory_delay": FloatType(allow_dynamic=False),
             "topic_name": RosTopicName(),
             "topic_type": RosTopicType(),
             "reliable": BoolType(),
             "transient_local": BoolType(),
             "depth": IntType(),
+            "memory_delay": FloatType(allow_dynamic=False),
         },
         outputs={"message": ReferenceType(reference="topic_type")},
         max_children=0,
@@ -295,19 +294,18 @@ class TopicMemorySubscriber(Leaf):
 
     def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
         match self.inputs.any_updated(
-            "topic_type", "topic_name", "reliable", "transient_local", "depth"
+            "topic_name", "reliable", "transient_local", "depth"
         ):
             case Err(e):
                 return Err(e)
             case Ok(b):
                 updated = b
-        if updated and self._subscriber is not None:
-            # Unsubscribe from the topic so we don't receive further updates
-            if not self.ros_node.destroy_subscription(self._subscriber):
-                error_msg = "Failed to destroy subscription"
-                self.logwarn(error_msg)
-                return Err(BehaviorTreeException(error_msg))
-            self._subscriber = None
+        if updated:
+            match self._do_reset():
+                case Err(e):
+                    return Err(e)
+                case Ok(_):
+                    pass
 
         if self._subscriber is None:
             match do(
@@ -364,12 +362,9 @@ class TopicMemorySubscriber(Leaf):
                     / 1e9
                 ) > self._memory_delay:
                     return Ok(BTNodeState.FAILED)
-            match self.outputs.set_value("message", self._msg):
-                case Err(e):
-                    return Err(e)
-                case Ok(None):
-                    pass
-        return Ok(BTNodeState.SUCCEEDED)
+            return self.outputs.set_value("message", self._msg).map(
+                lambda _: BTNodeState.SUCCEEDED
+            )
 
     def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
         return self._do_reset().map(lambda _: BTNodeState.SHUTDOWN)
@@ -480,19 +475,18 @@ class TopicPublisher(Leaf):
 
     def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
         match self.inputs.any_updated(
-            "topic_type", "topic_name", "reliable", "transient_local", "depth"
+            "topic_name", "reliable", "transient_local", "depth"
         ):
             case Err(e):
                 return Err(e)
             case Ok(b):
                 updated = b
-        if updated and self._publisher is not None:
-            # Unsubscribe from the topic so we don't receive further updates
-            if not self.ros_node.destroy_publisher(self._publisher):
-                error_msg = "Failed to destroy subscription"
-                self.logwarn(error_msg)
-                return Err(BehaviorTreeException(error_msg))
-            self._publisher = None
+        if updated:
+            match self._do_reset():
+                case Err(e):
+                    return Err(e)
+                case Ok(_):
+                    pass
 
         if self._publisher is None:
             match do(
@@ -547,8 +541,6 @@ class TopicPublisher(Leaf):
             case Ok(b):
                 msg_updated = b
         if msg_updated:
-            if self._publisher is None:
-                return Err(BehaviorTreeException("Publisher not available"))
             match self.inputs.get_value("message"):
                 case Err(e):
                     return Err(e)

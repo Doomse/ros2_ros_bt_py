@@ -70,27 +70,14 @@ class MessageToFields(Leaf):
         return Ok(BTNodeState.IDLE)
 
     def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        match self.inputs.any_updated("in"):
-            case Err(e):
-                return Err(e)
-            case Ok(b):
-                updated = b
-        if not updated:
-            return Ok(BTNodeState.SUCCEEDED)
-
         match self.inputs.get_value_as("in", self.msg_type):
             case Err(e):
                 return Err(e)
             case Ok(m):
                 msg = m
-        match self.outputs.set_multiple_values(
+        return self.outputs.set_multiple_values(
             **{field: getattr(msg, field) for field in self.msg_fields}
-        ):
-            case Err(e):
-                return Err(e)
-            case Ok(None):
-                pass
-        return Ok(BTNodeState.SUCCEEDED)
+        ).map(lambda _: BTNodeState.SUCCEEDED)
 
     def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
         return Ok(BTNodeState.IDLE)
@@ -134,14 +121,6 @@ class FieldsToMessage(Leaf):
         return Ok(BTNodeState.IDLE)
 
     def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        match self.inputs.any_updated(*self.msg_fields):
-            case Err(e):
-                return Err(e)
-            case Ok(b):
-                updated = b
-        if not updated:
-            return Ok(BTNodeState.SUCCEEDED)
-
         msg = self.msg_type()
         for field in self.msg_fields:
             match self.inputs.get_value(field):
@@ -151,12 +130,7 @@ class FieldsToMessage(Leaf):
                     value = v
             setattr(msg, field, value)
 
-        match self.outputs.set_value("out", msg):
-            case Err(e):
-                return Err(e)
-            case Ok(None):
-                pass
-        return Ok(BTNodeState.SUCCEEDED)
+        return self.outputs.set_value("out", msg).map(lambda _: BTNodeState.SUCCEEDED)
 
     def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
         return Ok(BTNodeState.IDLE)

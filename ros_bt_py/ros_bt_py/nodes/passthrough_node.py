@@ -61,7 +61,7 @@ class PassthroughNode(Leaf):
         return (
             self.inputs.get_value("in")
             .and_then(lambda val: self.outputs.set_value("out", val))
-            .and_then(lambda _: Ok(BTNodeState.SUCCEEDED))
+            .map(lambda _: BTNodeState.SUCCEEDED)
         )
 
     def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:

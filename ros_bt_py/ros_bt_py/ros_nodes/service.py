@@ -27,7 +27,6 @@
 # POSSIBILITY OF SUCH DAMAGE.
 import abc
 from typing import Any, Optional
-from typeguard import typechecked
 
 from ros_bt_py.vendor.result import Result, Ok, Err, do
 
@@ -45,7 +44,6 @@ from ros_bt_py.data_types import (
     get_message_field_io_type,
 )
 from ros_bt_py.exceptions import BehaviorTreeException, NodeConfigError
-from ros_bt_py.ros_helpers import get_message_field_type
 from ros_bt_py.helpers import BTNodeState
 from ros_bt_py.node import Leaf, define_bt_node
 from ros_bt_py.node_config import NodeConfig
@@ -65,7 +63,7 @@ from ros_bt_py_interfaces.msg import UtilityBounds
         max_children=0,
     )
 )
-class ServiceInput(Leaf):
+class Service(Leaf):
     """
     Call a ROS service with the provided Request data.
 
@@ -116,7 +114,6 @@ class ServiceInput(Leaf):
     def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
         self._service_client: Optional[Client] = None
         self._service_request_future: Optional[Future] = None
-        self._finish_state = BTNodeState.SUCCEEDED
 
         match self.inputs.get_value_as("wait_for_response_seconds", float):
             case Err(e):
@@ -141,13 +138,14 @@ class ServiceInput(Leaf):
         return Ok(BTNodeState.IDLE)
 
     def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        # If the service name or request changed
+        # If the service name or request changed, discard and restart the request
         match self.inputs.any_updated("service_name", *self._request_fields):
             case Err(e):
                 return Err(e)
             case Ok(b):
                 updated = b
-        if updated:
+        # If the node is in IDLE state, this is the first tick after a setup/reset/untick
+        if updated or self.state == BTNodeState.IDLE:
             self._input_request = self._request_type()
             for key in self._request_fields:
                 match self.inputs.get_value(key):
@@ -155,10 +153,11 @@ class ServiceInput(Leaf):
                         return Err(e)
                     case Ok(v):
                         setattr(self._input_request, key, v)
-            if self._service_request_future is not None:
-                self._service_request_future.cancel()
-            if self._service_client is not None:
-                self._do_reset()
+            match self._do_reset():
+                case Err(e):
+                    return Err(e)
+                case Ok(_):
+                    pass
 
         if self._service_client is None:
             match self.inputs.get_value_as("service_name", str):
@@ -172,9 +171,7 @@ class ServiceInput(Leaf):
                 callback_group=ReentrantCallbackGroup(),
             )
 
-        # If theres' no service call in-flight, and we have already reported
-        # the result (see below), start a new call and save the request
-        if self._service_request_future is None and self._input_request is not None:
+        if self._input_request is not None:
             self._reported_result = False
             self._last_service_call_time = self.ros_node.get_clock().now()
             self._service_request_future = self._service_client.call_async(
@@ -183,32 +180,25 @@ class ServiceInput(Leaf):
             self._input_request = None
 
         if self._service_request_future is None:
-            return Ok(self._finish_state)
+            return Ok(self.state)
 
         if self._service_request_future.done():
             res = self._service_request_future.result()
             if res is None:
                 return Err(BehaviorTreeException("Service response is none!"))
             self._service_request_future = None
-
             try:
                 response_values = {
                     key: getattr(res, key) for key in self._response_fields
                 }
             except AttributeError as e:
                 return Err(BehaviorTreeException(str(e)))
-            match self.outputs.set_multiple_values(**response_values):
-                case Err(e):
-                    return Err(e)
-                case Ok(None):
-                    pass
-
-            self._finish_state = BTNodeState.SUCCEEDED
-            return Ok(self._finish_state)
+            return self.outputs.set_multiple_values(**response_values).map(
+                lambda _: BTNodeState.SUCCEEDED
+            )
         if self._service_request_future.cancelled():
             self._service_request_future = None
-            self._finish_state = BTNodeState.FAILED
-            return Ok(self._finish_state)
+            return Ok(BTNodeState.FAILED)
 
         # If the call takes longer than the specified timeout, abort the
         # call and return FAILED
@@ -248,7 +238,7 @@ class ServiceInput(Leaf):
         return self._do_untick()
 
     def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return self._do_reset().and_then(lambda _: Ok(BTNodeState.SHUTDOWN))
+        return self._do_reset().map(lambda _: BTNodeState.SHUTDOWN)
 
     def _do_calculate_utility(self) -> Result[UtilityBounds, BehaviorTreeException]:
         if not self.has_ros_node or self._service_client is None:
@@ -287,7 +277,7 @@ class ServiceInput(Leaf):
         max_children=0,
     )
 )
-class WaitForServiceInput(Leaf):
+class WaitForService(Leaf):
     """Wait for a service to be available, fails if this wait times out."""
 
     def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
@@ -311,6 +301,18 @@ class WaitForServiceInput(Leaf):
         return Ok(BTNodeState.IDLE)
 
     def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
+        match self.inputs.any_updated("service_name"):
+            case Err(e):
+                return Err(e)
+            case Ok(b):
+                updated = b
+        if updated:
+            match self._do_reset():
+                case Err(e):
+                    return Err(e)
+                case Ok(_):
+                    pass
+
         if self._service_client is None:
             match self.inputs.get_value_as("service_name", str):
                 case Err(e):
@@ -348,7 +350,7 @@ class WaitForServiceInput(Leaf):
         return self._do_untick()
 
     def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return self._do_reset().and_then(lambda _: Ok(BTNodeState.SHUTDOWN))
+        return self._do_reset().map(lambda _: BTNodeState.SHUTDOWN)
 
 
 """@define_bt_node(
