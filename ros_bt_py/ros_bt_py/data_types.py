@@ -248,16 +248,35 @@ class DataContainer(Generic[ANY], abc.ABC):
             case Err(None):
                 return ""
             case Ok(v):
-                return self._serialize_value(v)
+                value = v
+        return json.dumps(
+            obj=self._serialize_value(value),
+            skipkeys=True,
+            default=lambda _: "",
+        )
 
-    @abc.abstractmethod
-    def _serialize_value(self, value: ANY) -> str:
-        raise NotImplementedError("Can't serialize a base class value")
+    @typechecked
+    def _serialize_value(self, value: ANY) -> Any:
+        """
+        Subclasses overwrite this to include custom serialization steps when necessary.
+        The output should be json-serializeable, but not serialized yet.
+        The wrapping method calls `json.dumps` as a final step.
+        """
+        return value
 
-    @abc.abstractmethod
+    @typechecked
     def deserialize_value(self, ser_value: str) -> Result[None, str]:
-        """This should also call `set_value` to assign the value and confirm it is valid."""
-        raise NotImplementedError("Can't deserialize a base class value")
+        value = json.loads(ser_value)
+        return self._deserialize_value(value).and_then(lambda val: self.set_value(val))
+
+    @typechecked
+    def _deserialize_value(self, value: Any) -> Result[ANY, str]:
+        """
+        Subclasses overwrite this to include custom serialization steps when necessary.
+        The output should be json-serializeable, but not serialized yet.
+        The wrapping method calls `json.dumps` as a final step.
+        """
+        return Ok(value)
 
 
 # This list gets populated through the `register_io_type` decorator,
@@ -339,22 +358,6 @@ class BuiltinContainer(DataContainer[BUILTIN]):
 
     def get_value(self) -> Result[BUILTIN, None]:
         return super().get_value()
-
-    @typechecked
-    def _serialize_value(self, value: BUILTIN) -> str:
-        # Replace all non-serializeable values with ""
-        #   This should only happen for untyped lists and dicts
-        # Also skip all non-serializeable dict keys
-        return json.dumps(
-            obj=value,
-            skipkeys=True,
-            default=lambda _: "",
-        )
-
-    @typechecked
-    def deserialize_value(self, ser_value: str) -> Result[None, str]:
-        value = json.loads(ser_value)
-        return self.set_value(value)
 
 
 @register_io_type
@@ -604,15 +607,14 @@ class BytesType(StringContainer[bytes]):
 
     @typechecked
     def _serialize_value(self, value: bytes) -> str:
-        return value.hex(" ")
+        return value.hex()
 
     @typechecked
-    def deserialize_value(self, ser_value: str) -> Result[None, str]:
+    def _deserialize_value(self, ser_value: str) -> Result[bytes, str]:
         try:
-            value = bytes.fromhex(ser_value)
+            return Ok(bytes.fromhex(ser_value))
         except ValueError:
             return Err(f"Given string {ser_value} isn't valid hexcode")
-        return self.set_value(value)
 
 
 ITER = TypeVar("ITER", list, dict)
@@ -749,7 +751,7 @@ class ListType(IterableContainer[list[Any]]):
         return super().set_value(value)
 
     @typechecked
-    def _serialize_value(self, value: list[Any]) -> str:
+    def _serialize_value(self, value: list[Any]) -> list[str]:
         serialized_list = []
         for item in value:
             match self._element_type.set_value(item):
@@ -759,17 +761,16 @@ class ListType(IterableContainer[list[Any]]):
                     ser_item = ""
                 case Ok(None):
                     ser_item = self._element_type.serialize_value()
-            serialized_list.append(ser_item)
-        return super()._serialize_value(serialized_list)
+            # Unapply the final serialization step of the element type
+            serialized_list.append(json.loads(ser_item))
+        return serialized_list
 
     @typechecked
-    def deserialize_value(self, ser_value: str) -> Result[None, str]:
-        value_list = json.loads(ser_value)
-        if not isinstance(value_list, self._type):
-            return Err(f"Value {ser_value} is not a list")
+    def _deserialize_value(self, ser_value: list[str]) -> Result[list[Any], str]:
         value = []
-        for item in value_list:
-            match self._element_type.deserialize_value(item):
+        for item in ser_value:
+            # Reapply the final serialization step of the element type
+            match self._element_type.deserialize_value(json.dumps(item)):
                 case Err(e):
                     return Err(e)
                 case Ok(None):
@@ -780,7 +781,7 @@ class ListType(IterableContainer[list[Any]]):
                     value.append(None)
                 case Ok(v):
                     value.append(v)
-        return self.set_value(value)
+        return Ok(value)
 
 
 @register_io_type
@@ -809,7 +810,7 @@ class DictType(IterableContainer[dict[str, Any]]):
         return super().set_value(cleaned_keys)
 
     @typechecked
-    def _serialize_value(self, value: dict[str, Any]) -> str:
+    def _serialize_value(self, value: dict[str, Any]) -> dict[str, str]:
         serialized_dict: dict[str, str] = {}
         for key, item in value.items():
             match self._element_type.set_value(item):
@@ -819,17 +820,18 @@ class DictType(IterableContainer[dict[str, Any]]):
                     ser_item = ""
                 case Ok(None):
                     ser_item = self._element_type.serialize_value()
-            serialized_dict[key] = ser_item
-        return super()._serialize_value(serialized_dict)
+            # Unapply the final serialization step of the element type
+            serialized_dict[key] = json.loads(ser_item)
+        return serialized_dict
 
     @typechecked
-    def deserialize_value(self, ser_value: str) -> Result[None, str]:
-        value_dict = json.loads(ser_value)
-        if not isinstance(value_dict, self._type):
-            return Err(f"Value {ser_value} is not a dict")
+    def _deserialize_value(
+        self, ser_value: dict[str, str]
+    ) -> Result[dict[str, Any], str]:
         value = {}
-        for key, item in value_dict.items():
-            match self._element_type.deserialize_value(item):
+        for key, item in ser_value.items():
+            # Reapply the final serialization step of the element type
+            match self._element_type.deserialize_value(json.dumps(item)):
                 case Err(e):
                     return Err(e)
                 case Ok(None):
@@ -840,7 +842,7 @@ class DictType(IterableContainer[dict[str, Any]]):
                     value[key] = None
                 case Ok(v):
                     value[key] = v
-        return self.set_value(value)
+        return Ok(value)
 
 
 IDENTIFIER_KEY = "type_identifier"
@@ -951,7 +953,7 @@ def deserialize_type_map_value(val: dict) -> dict:
                 value_dict[ELEMENT_KEY]
             )
         return value_dict
-    # Coerce int & float values to string to avoid loss of precision
+    # Parse int & float values from string to avoid loss of precision
     if "min_value" in value_dict.keys():
         value_dict["min_value"] = converter(value_dict["min_value"])
     if "max_value" in value_dict.keys():
@@ -1042,11 +1044,11 @@ class BuiltinType(TypeContainerMixin, BuiltinContainer[dict]):
         type_msg.serialized_value_options = serialize_type_map(self.valid_types)
         return type_msg
 
-    def _serialize_value(self, value: dict) -> str:
-        return super()._serialize_value(serialize_type_map_value(value))
+    def _serialize_value(self, value: dict) -> dict:
+        return serialize_type_map_value(value)
 
-    def deserialize_value(self, ser_value: str) -> Result[None, str]:
-        return self.set_value(deserialize_type_map_value(json.loads(ser_value)))
+    def _deserialize_value(self, ser_value: dict) -> Result[dict, str]:
+        return Ok(deserialize_type_map_value(ser_value))
 
     @typechecked
     def get_value_field(self) -> Result[DataContainer, None]:
@@ -1198,37 +1200,36 @@ class RosMsgContainer(RosContainer[Any]):
     def get_value(self) -> Result[Any, None]:
         return super().get_value().and_then(lambda v: Ok(deepcopy(v)))
 
-    def _serialize_value(self, value: Any) -> str:
+    def _serialize_value(self, value: Any) -> dict[str, Any]:
         match self.get_element_fields():
             case Err(_):
-                return ""
+                return {}
             case Ok(d):
                 field_dict = d
         out_dict = {}
         for field_name, field_type in field_dict.items():
             match field_type.set_value(getattr(value, field_name, None)):
                 case Err(_):
-                    return ""
+                    return {}
                 case Ok(None):
                     pass
-            out_dict[field_name] = field_type.serialize_value()
-        return json.dumps(out_dict)
+            # Unapply the final serialization step of the field type
+            out_dict[field_name] = json.loads(field_type.serialize_value())
+        return out_dict
 
     @typechecked
-    def deserialize_value(self, ser_value: str) -> Result[None, str]:
+    def _deserialize_value(self, ser_value: dict[str, Any]) -> Result[Any, str]:
         match self.get_element_fields():
             case Err(e):
                 return Err(e)
             case Ok(d):
                 field_dict = d
         value = self.message_type()
-        in_dict = json.loads(ser_value)
-        if not isinstance(in_dict, dict):
-            return Err(f"Serialized value {ser_value} is not a dict")
-        for field_name, field_value in in_dict.items():
+        for field_name, field_value in ser_value.items():
             if field_name in field_dict.keys():
                 field_type = field_dict[field_name]
-                match field_type.deserialize_value(field_value):
+                # Reapply the final serialization step of the field type
+                match field_type.deserialize_value(json.dumps(field_value)):
                     case Err(e):
                         return Err(e)
                     case Ok(None):
@@ -1242,7 +1243,7 @@ class RosMsgContainer(RosContainer[Any]):
                 return Err(
                     f"Key {field_name} does not exist on message type {self.message_type}"
                 )
-        return self.set_value(value)
+        return Ok(value)
 
     def get_element_fields(self) -> Result[dict[str, DataContainer], str]:
         out_dict = {}
@@ -1307,14 +1308,14 @@ class RosTypeContainer(TypeContainerMixin, RosContainer[type]):
         return get_interface_name(value)
 
     @typechecked
-    def deserialize_value(self, ser_value: str) -> Result[None, str]:
+    def _deserialize_value(self, ser_value: str) -> Result[Any, str]:
         try:
             msg = rosidl_runtime_py.utilities.get_interface(ser_value)
         except ValueError:
             return Err(
                 f"Serialized value {ser_value} does not point to a valid ROS interface"
             )
-        return self.set_value(msg)
+        return Ok(msg)
 
     @typechecked
     def get_value_field(self) -> Result[DataContainer, None]:
@@ -1459,7 +1460,7 @@ class BuiltinOrRosType(TypeContainerMixin, DataContainer[dict | type]):
         return type_msg
 
     @typechecked
-    def _serialize_value(self, value: dict | type) -> str:
+    def _serialize_value(self, value: dict | type) -> str | dict:
         if isinstance(value, type) and isinstance(self._inner_type, RosTopicType):
             return self._inner_type._serialize_value(value)
         if isinstance(value, dict) and isinstance(self._inner_type, BuiltinType):
@@ -1467,8 +1468,12 @@ class BuiltinOrRosType(TypeContainerMixin, DataContainer[dict | type]):
         return ""
 
     @typechecked
-    def deserialize_value(self, ser_value: str) -> Result[None, str]:
-        return self._inner_type.deserialize_value(ser_value)
+    def _deserialize_value(self, ser_value: str | dict) -> Result[str | dict, str]:
+        if isinstance(ser_value, str) and isinstance(self._inner_type, RosTopicType):
+            return self._inner_type._deserialize_value(ser_value)
+        if isinstance(ser_value, dict) and isinstance(self._inner_type, BuiltinType):
+            return self._inner_type._deserialize_value(ser_value)
+        return Err(f"Mismatch of value {ser_value} and inner type {self._inner_type}")
 
     @typechecked
     def get_value_field(self) -> Result[DataContainer, None]:
@@ -1575,20 +1580,16 @@ class ReferenceContainer(DataContainer[Any]):
             return None
         return self._inner_type.reset_updated()
 
-    def _serialize_value(self, value: None) -> str:
-        raise RuntimeError("This should never be called on a reference")
-
-    @typechecked
-    def serialize_value(self) -> str:
+    def _serialize_value(self, value: Any) -> Any:
         if self._inner_type is None:
             return ""
-        return self._inner_type.serialize_value()
+        return self._inner_type._serialize_value(value)
 
-    def deserialize_value(self, ser_value: str) -> Result[None, str]:
+    def _deserialize_value(self, ser_value: Any) -> Result[Any, str]:
         if self._inner_type is None:
             # Accept and ignore all serialized values if no inner type is set.
             return Ok(None)
-        return self._inner_type.deserialize_value(ser_value)
+        return self._inner_type._deserialize_value(ser_value)
 
 
 @register_io_type
