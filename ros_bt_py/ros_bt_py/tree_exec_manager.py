@@ -619,7 +619,7 @@ class TreeExecManager:
     @typechecked
     def tick(
         self,
-    ) -> Result[None, MissingParentError | BehaviorTreeException | TreeTopologyError]:
+    ) -> Result[None, BehaviorTreeException]:
         """
         Execute a tick, starting from the tree's root.
 
@@ -776,7 +776,8 @@ class TreeExecManager:
         """Reload the currently loaded tree."""
         load_response = LoadTree.Response()
         load_response = self.load_tree(
-            request=LoadTree.Request(tree=self._tree_structure), response=load_response
+            request=LoadTree.Request(tree=self.structure_to_msg()),
+            response=load_response,
         )
 
         response.success = load_response.success
@@ -839,14 +840,13 @@ class TreeExecManager:
             match self.instantiate_node_from_msg(
                 node_msg=node,
                 ros_node=self.ros_node,
-                permissive=request.permissive,
             ):
                 case Err(e):
                     response.success = False
                     response.error_message = str(e)
                     return response
-                case Ok(node):
-                    self.nodes[node.node_id] = node
+                case Ok(n):
+                    self.nodes[n.node_id] = n
 
         for node in tree.nodes:
             # We just parsed all ids before, so we know them to be safe
@@ -1151,7 +1151,7 @@ class TreeExecManager:
                 if self._tick_thread.is_alive():
                     response.success = False
                     response.error_message = (
-                        "Tried to join tick thread with " "Tree state IDLE, but failed!"
+                        "Tried to join tick thread with Tree state IDLE, but failed!"
                     )
                     self.publish_state()
                     return response
@@ -1323,7 +1323,6 @@ class TreeExecManager:
         self,
         node_msg: NodeStructure,
         ros_node: rclpy.node.Node,
-        permissive: bool = False,
     ) -> Result[Node, BehaviorTreeException]:
 
         node_result = Node.from_msg(

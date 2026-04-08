@@ -55,8 +55,8 @@ from ros_bt_py_interfaces.msg import UtilityBounds
     NodeConfig(
         version="0.1.0",
         inputs={
-            "service_type": RosServiceType(interface_id=1),
             "service_name": RosServiceName(interface_id=1),
+            "service_type": RosServiceType(interface_id=1),
             "wait_for_response_seconds": FloatType(allow_dynamic=False, value=10.2),
         },
         outputs={},
@@ -269,8 +269,8 @@ class Service(Leaf):
     NodeConfig(
         version="0.1.0",
         inputs={
-            "service_type": RosServiceType(interface_id=1),
             "service_name": RosServiceName(interface_id=1),
+            "service_type": RosServiceType(interface_id=1),
             "wait_for_service_seconds": FloatType(allow_dynamic=False, value=10.2),
         },
         outputs={},

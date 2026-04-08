@@ -25,15 +25,16 @@
 # CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
-import inspect
 import uuid
 from copy import deepcopy
-from typing import Any, Dict, List, cast
+from typing import Any
 
 from ros_bt_py.tree_exec_manager import TreeExecManager, is_edit_service
 from ros_bt_py.vendor.result import Err, Ok, Result
 
 from typeguard import typechecked
+
+from ros_bt_py_interfaces.msg import NodeIO
 
 from ros_bt_py_interfaces.srv import (
     AddNode,
@@ -51,13 +52,10 @@ from ros_bt_py_interfaces.srv import (
 )
 
 from ros_bt_py.debug_manager import DebugManager
-from ros_bt_py.exceptions import BehaviorTreeException
 from ros_bt_py.helpers import (
     BTNodeState,
 )
 from ros_bt_py.ros_helpers import ros_to_uuid, uuid_to_ros
-
-from rclpy_message_converter import message_converter
 
 
 class TreeEditManager(TreeExecManager):
@@ -69,10 +67,10 @@ class TreeEditManager(TreeExecManager):
     """
 
     @typechecked
-    def find_nodes_in_cycles(self) -> List[uuid.UUID]:
+    def find_nodes_in_cycles(self) -> list[uuid.UUID]:
         """Return a list of all nodes in the tree that are part of cycles."""
-        safe_node_ids: List[uuid.UUID] = []
-        nodes_in_cycles: List[uuid.UUID] = []
+        safe_node_ids: list[uuid.UUID] = []
+        nodes_in_cycles: list[uuid.UUID] = []
         # Follow the chain of parent nodes for each node name in self.nodes
         for starting_id in self.nodes.keys():
             cycle_candidates = [starting_id]
@@ -583,12 +581,29 @@ class TreeEditManager(TreeExecManager):
 
         # First, we need to add the option values that didn't change
         # to our dict:
+        new_inputs = {io.key: io for io in request.inputs}
+        for key, container in node.node_config.inputs.items():
+            if key in new_inputs.keys():
+                continue
+            new_inputs[key] = NodeIO(
+                key=key,
+                type=container.serialize_type(),
+                serialized_value=container.serialize_value(),
+            )
 
         # Now we can construct the new node - no need to call setup,
         # since we're guaranteed to be in the edit state
         # (i.e. `root.setup()` will be called before anything that
         # needs the node to be set up)
-        new_node = node
+        node_msg = node.to_structure_msg()
+        node_msg.inputs = new_inputs.values()
+        match self.instantiate_node_from_msg(node_msg, ros_node=self.ros_node):
+            case Err(e):
+                response.success = False
+                response.error_message = str(e)
+                return response
+            case Ok(n):
+                new_node = n
 
         # Use this request to unwire any data connections the existing
         # node has - if we didn't do this, the node wouldn't ever be
@@ -1037,20 +1052,6 @@ class TreeEditManager(TreeExecManager):
 
         :returns: :class:`ros_bt_py_msgs.src.WireNodeDataResponse` or `None`
         """
-        response.success = True
-        find_root_result = self.find_root()
-        if find_root_result.is_err():
-            response.success = False
-            response.error_message = (
-                "Unable to find root node: " f"{str(find_root_result.unwrap_err())}"
-            )
-            return response
-        root = find_root_result.unwrap()
-        if not root:
-            response.success = False
-            response.error_message = "Tree is empty cannot wire!"
-            return response
-
         successful_wirings = []
         for wiring in request.wirings:
             match self.validate_wiring(wiring):
@@ -1067,6 +1068,7 @@ class TreeEditManager(TreeExecManager):
         # We made it here, so all the Wirings should be valid. Time to save
         # them.
         self.wirings.extend(successful_wirings)
+        response.success = True
         return response
 
     @is_edit_service
@@ -1084,21 +1086,6 @@ class TreeEditManager(TreeExecManager):
 
         :returns: :class:`ros_bt_py_msgs.src.WireNodeDataResponse` or `None`
         """
-        root_result = self.find_root()
-        if root_result.is_err():
-            response.success = False
-            response.error_message = (
-                "Unable to find root node: " f"{str(root_result.unwrap_err())}"
-            )
-            return response
-
-        root = root_result.unwrap()
-        if not root:
-            response.success = False
-            response.error_message = "Tree is empty cannot unwire data!"
-            return response
-
-        response.success = True
         successful_unwirings = []
         for wiring in request.wirings:
             if wiring not in self.wirings:
@@ -1109,19 +1096,15 @@ class TreeEditManager(TreeExecManager):
                 return response
             successful_unwirings.append(wiring)
 
-        for wiring in request.wirings:
+        for wiring in successful_unwirings:
             self.wirings.remove(wiring)
+        response.success = True
         return response
 
     @typechecked
     def get_subtree(
         self, request: GetSubtree.Request, response: GetSubtree.Response
     ) -> GetSubtree.Response:
-        if request.root_id not in self.nodes:
-            response.success = False
-            response.error_message = f'Node "{request.root_id}" does not exist!'
-            return response
-
         match ros_to_uuid(request.root_id):
             case Err(e):
                 response.success = False
@@ -1129,6 +1112,11 @@ class TreeEditManager(TreeExecManager):
                 return response
             case Ok(n_id):
                 root_id = n_id
+
+        if root_id not in self.nodes:
+            response.success = False
+            response.error_message = f'Node "{request.root_id}" does not exist!'
+            return response
 
         get_subtree_msg_result = self.nodes[root_id].get_subtree_msg()
 

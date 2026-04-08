@@ -47,9 +47,9 @@ from ros_bt_py.node_config import NodeConfig
     NodeConfig(
         version="0.1.0",
         inputs={
+            "param_name": StringType(),
             "param_type": BuiltinType(valid_types=[bool, int, float, bytes]),
             "default_value": ReferenceType(reference="param_type"),
-            "param_name": StringType(),
         },
         outputs={"param": ReferenceType(reference="param_type")},
         max_children=0,
@@ -106,9 +106,9 @@ class RosParam(Leaf):
     NodeConfig(
         version="0.1.0",
         inputs={
+            "param_name": StringType(),
             "param_type": BuiltinType(valid_types=[bool, int, float, bytes]),
             "default_value": ReferenceListType(reference="param_type"),
-            "param_name": StringType(),
         },
         outputs={"param": ReferenceListType(reference="param_type")},
         max_children=0,
