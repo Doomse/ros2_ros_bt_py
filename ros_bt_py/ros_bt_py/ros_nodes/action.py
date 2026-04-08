@@ -533,11 +533,17 @@ class Action(Leaf):
                 action_type = t
         self._action_type = action_type
         self._goal_type = action_type.Goal
-        return do(
-            Ok({field_name: field_io_type})
-            for field_name, field_type in self._goal_type.get_fields_and_field_types()
-            for field_io_type in get_message_field_io_type(field_type)
-        )
+        inputs = {}
+        for (
+            field_name,
+            field_type,
+        ) in self._goal_type.get_fields_and_field_types().items():
+            match get_message_field_io_type(field_type):
+                case Err(e):
+                    return Err(NodeConfigError(e))
+                case Ok(t):
+                    inputs[field_name] = t
+        return Ok(inputs)
 
     def add_extra_outputs(self) -> Result[dict[str, DataContainer], NodeConfigError]:
         match self.inputs.get_value("action_type"):
@@ -548,15 +554,24 @@ class Action(Leaf):
         self._result_type = action_type.Result
         self._feedback_type = action_type.Feedback
         combined_fields: dict[str, str] = {}
-        for field_name, field_type in self._result_type.get_fields_and_field_types():
+        for (
+            field_name,
+            field_type,
+        ) in self._result_type.get_fields_and_field_types().items():
             combined_fields[f"result.{field_name}"] = field_type
-        for field_name, field_type in self._result_type.get_fields_and_field_types():
+        for (
+            field_name,
+            field_type,
+        ) in self._result_type.get_fields_and_field_types().items():
             combined_fields[f"feedback.{field_name}"] = field_type
-        return do(
-            Ok({field_name: field_io_type})
-            for field_name, field_type in combined_fields
-            for field_io_type in get_message_field_io_type(field_type)
-        )
+        outputs = {}
+        for field_name, field_type in combined_fields:
+            match get_message_field_io_type(field_type):
+                case Err(e):
+                    return Err(NodeConfigError(e))
+                case Ok(t):
+                    outputs[field_name] = t
+        return Ok(outputs)
 
     def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
         if not self.has_ros_node:

@@ -132,34 +132,40 @@ class EnumSwitch(FlowControl):
 
         # If we've previously succeeded or failed, reset all children
         if self.state in [BTNodeState.SUCCEEDED, BTNodeState.FAILED]:
-            match do(Ok(None) for child in self.children for _ in child.reset()):
+            for child in self.children:
+                match child.reset():
+                    case Err(e):
+                        return Err(e)
+                    case Ok(_):
+                        pass
+
+        for child_name, child in self.child_map.items():
+            if child_name == e_name:
+                continue
+            match child.untick():
                 case Err(e):
                     return Err(e)
-                case Ok(None):
+                case Ok(_):
                     pass
-
-        match do(
-            Ok(None)
-            for child_name, child in self.child_map.items()
-            if child_name != e_name
-            for _ in child.untick()
-        ):
-            case Err(e):
-                return Err(e)
-            case Ok(None):
-                pass
-
         return self.child_map[e_name].tick()
 
     def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return do(
-            Ok(BTNodeState.IDLE) for child in self.children for _ in child.untick()
-        )
+        for child in self.children:
+            match child.untick():
+                case Err(e):
+                    return Err(e)
+                case Ok(_):
+                    pass
+        return Ok(BTNodeState.IDLE)
 
     def _do_reset(self) -> Result[BTNodeState, BehaviorTreeException]:
-        return do(
-            Ok(BTNodeState.IDLE) for child in self.children for _ in child.reset()
-        )
+        for child in self.children:
+            match child.reset():
+                case Err(e):
+                    return Err(e)
+                case Ok(_):
+                    pass
+        return Ok(BTNodeState.IDLE)
 
     def _do_shutdown(self) -> Result[BTNodeState, BehaviorTreeException]:
         return Ok(BTNodeState.SHUTDOWN)

@@ -59,11 +59,17 @@ class MessageToFields(Leaf):
                 return Err(e)
             case Ok(t):
                 self.msg_type = t
-        return do(
-            Ok({field_name: field_io_type})
-            for field_name, field_type in self.msg_type.get_fields_and_field_types()
-            for field_io_type in get_message_field_io_type(field_type)
-        )
+        outputs = {}
+        for (
+            field_name,
+            field_type,
+        ) in self.msg_type.get_fields_and_field_types().items():
+            match get_message_field_io_type(field_type):
+                case Err(e):
+                    return Err(NodeConfigError(e))
+                case Ok(t):
+                    outputs[field_name] = t
+        return Ok(outputs)
 
     def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
         self.msg_fields = list(self.msg_type.get_fields_and_field_types().keys())
@@ -110,11 +116,17 @@ class FieldsToMessage(Leaf):
                 return Err(e)
             case Ok(t):
                 self.msg_type = t
-        return do(
-            Ok({field_name: field_io_type})
-            for field_name, field_type in self.msg_type.get_fields_and_field_types()
-            for field_io_type in get_message_field_io_type(field_type)
-        )
+        inputs = {}
+        for (
+            field_name,
+            field_type,
+        ) in self.msg_type.get_fields_and_field_types().items():
+            match get_message_field_io_type(field_type):
+                case Err(e):
+                    return Err(NodeConfigError(e))
+                case Ok(t):
+                    inputs[field_name] = t
+        return Ok(inputs)
 
     def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
         self.msg_fields = list(self.msg_type.get_fields_and_field_types().keys())

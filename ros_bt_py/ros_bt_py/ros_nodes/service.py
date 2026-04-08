@@ -92,11 +92,17 @@ class Service(Leaf):
                 service_type = t
         self._service_type = service_type
         self._request_type = service_type.Request
-        return do(
-            Ok({field_name: field_io_type})
-            for field_name, field_type in self._request_type.get_fields_and_field_types()
-            for field_io_type in get_message_field_io_type(field_type)
-        )
+        inputs = {}
+        for (
+            field_name,
+            field_type,
+        ) in self._request_type.get_fields_and_field_types().items():
+            match get_message_field_io_type(field_type):
+                case Err(e):
+                    return Err(NodeConfigError(e))
+                case Ok(t):
+                    inputs[field_name] = t
+        return Ok(inputs)
 
     def add_extra_outputs(self) -> Result[dict[str, DataContainer], NodeConfigError]:
         match self.inputs.get_value("service_type"):
@@ -105,11 +111,17 @@ class Service(Leaf):
             case Ok(t):
                 service_type = t
         self._response_type = service_type.Response
-        return do(
-            Ok({field_name: field_io_type})
-            for field_name, field_type in self._response_type.get_fields_and_field_types()
-            for field_io_type in get_message_field_io_type(field_type)
-        )
+        outputs = {}
+        for (
+            field_name,
+            field_type,
+        ) in self._response_type.get_fields_and_field_types().items():
+            match get_message_field_io_type(field_type):
+                case Err(e):
+                    return Err(NodeConfigError(e))
+                case Ok(t):
+                    outputs[field_name] = t
+        return Ok(outputs)
 
     def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
         self._service_client: Optional[Client] = None
