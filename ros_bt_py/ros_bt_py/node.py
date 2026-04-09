@@ -406,8 +406,9 @@ class Node(object, metaclass=NodeMeta):
                     )
                 )
 
-            # Reset input/output reset state and set outputs to None
+            # Reset input/output reset state and set dynamic values to None
             for container in self.node_config.inputs.values():
+                container.reset_value()
                 container.restore_updated()
 
             for container in self.node_config.outputs.values():
@@ -466,9 +467,7 @@ class Node(object, metaclass=NodeMeta):
                     self.state = BTNodeState.BROKEN
                     return Err(e)
                 case Ok(s):
-                    new_state = s
-            if new_state is not None:
-                self.state = new_state
+                    self.state = s
 
             # Inputs are updated by other nodes' outputs, i.e. some time after
             # we use them here. In some cases, inputs might be connected to

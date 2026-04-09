@@ -196,7 +196,7 @@ class DataContainer(Generic[ANY], abc.ABC):
         if self.is_static and self._updated:
             return Err("Static value was already assigned")
         # Only set `_updated` if the new value is different from the old
-        has_changed: bool | Iterable[bool] = self._value == value
+        has_changed: bool | Iterable[bool] = self._value != value
         # Since we potentially handle numpy arrays, we have to account for `==`
         #   returing an iterable of bools rather than a single bool
         if isinstance(has_changed, Iterable):
@@ -451,7 +451,8 @@ class IntType(NumericContainer[int]):
     type_identifier = NodeDataType.INT_TYPE
     _type = int
     _value = 0
-    lower_limit, upper_limit = INT_LIMITS["int64"]
+    lower_limit = INT_LIMITS["int64"][0]
+    upper_limit = INT_LIMITS["uint64"][1]
 
     @classmethod
     def _dict_from_msg(cls, msg: NodeDataType) -> Result[dict, str]:
@@ -986,7 +987,6 @@ class BuiltinType(TypeContainerMixin, BuiltinContainer[dict]):
     """
 
     type_identifier = NodeDataType.BUILTIN_TYPE
-    _value = list(BUILTIN_TYPE_MAP.values())[0]
     _type = dict
     valid_types: list[type]
 
@@ -1001,6 +1001,7 @@ class BuiltinType(TypeContainerMixin, BuiltinContainer[dict]):
             if type_ not in BUILTIN_TYPE_MAP.keys():
                 raise RuntimeError(f"Type {type_} is not usable as an IO type")
         self.valid_types = valid_types
+        self._value = BUILTIN_TYPE_MAP[valid_types[0]]
         super().__init__(*args, **kwargs)
 
     @classmethod
@@ -1158,6 +1159,7 @@ class RosMessage(Protocol):
         raise NotImplementedError
 
 
+@register_io_type
 class RosMessageType(RosContainer[Any]):
     """
     This is primarily used as a superclass for the `value_field`
@@ -1173,6 +1175,7 @@ class RosMessageType(RosContainer[Any]):
 
     def __init__(self, message_type: type[RosMessage], *args, **kwargs) -> None:
         self.message_type = message_type
+        self._value = message_type()
         super().__init__(*args, **kwargs)
 
     def is_compatible(self, other: DataContainer) -> TypeGuard[Self]:
@@ -1411,19 +1414,11 @@ class BuiltinOrRosType(TypeContainerMixin, DataContainer[dict | type]):
         return Ok(config)
 
     @typechecked
-    def set_value(self, value: dict | type) -> Result[None, str]:
-        if isinstance(value, type) and isinstance(self._inner_type, RosTopicType):
-            return self._inner_type.set_value(value)
-        if isinstance(value, dict) and isinstance(self._inner_type, BuiltinType):
-            return self._inner_type.set_value(value)
-        return Err(f"Mismatch between value {value} and inner type {self._inner_type}")
-
-    def get_value(self) -> Result[dict | type, None]:
-        return self._inner_type.get_value()
-
-    @typechecked
     def is_compatible(self, other: DataContainer) -> TypeGuard[Self]:
         return super().is_compatible(other)
+
+    def get_runtime_type(self) -> BuiltinType | RosTopicType:
+        return self._inner_type.get_runtime_type()
 
     def serialize_type(self) -> NodeDataType:
         type_msg = super().serialize_type()
@@ -1436,6 +1431,29 @@ class BuiltinOrRosType(TypeContainerMixin, DataContainer[dict | type]):
             list(BUILTIN_TYPE_MAP.keys())
         )
         return type_msg
+
+    def get_value(self) -> Result[dict | type, None]:
+        return self._inner_type.get_value()
+
+    @typechecked
+    def set_value(self, value: dict | type) -> Result[None, str]:
+        if isinstance(value, type) and isinstance(self._inner_type, RosTopicType):
+            return self._inner_type.set_value(value)
+        if isinstance(value, dict) and isinstance(self._inner_type, BuiltinType):
+            return self._inner_type.set_value(value)
+        return Err(f"Mismatch between value {value} and inner type {self._inner_type}")
+
+    def reset_value(self):
+        return self._inner_type.reset_value()
+
+    def is_updated(self) -> bool:
+        return self._inner_type.is_updated()
+
+    def restore_updated(self) -> None:
+        return self._inner_type.restore_updated()
+
+    def reset_updated(self) -> None:
+        return self._inner_type.reset_updated()
 
     @typechecked
     def _serialize_value(self, value: dict | type) -> str | dict:

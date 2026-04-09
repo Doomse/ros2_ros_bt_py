@@ -52,9 +52,7 @@ from ros_bt_py_interfaces.srv import (
 )
 
 from ros_bt_py.debug_manager import DebugManager
-from ros_bt_py.helpers import (
-    BTNodeState,
-)
+
 from ros_bt_py.ros_helpers import ros_to_uuid, uuid_to_ros
 
 
@@ -273,16 +271,6 @@ class TreeEditManager(TreeExecManager):
             return response
 
         target_node = self.nodes[node_id]
-        # Shutdown node - this should also shutdown all children, but you
-        # never know, so check later.
-        shutdown_result = target_node.shutdown()
-        if shutdown_result.is_err():
-            response.success = False
-            response.error_message = (
-                "Failed to shutdown node to remove: "
-                f"{str(shutdown_result.unwrap_err())}"
-            )
-            return response
 
         node_ids_to_remove = [target_node.node_id]
         if request.remove_children:
@@ -340,23 +328,7 @@ class TreeEditManager(TreeExecManager):
             if n_id in removed_node_ids:
                 continue
             removed_node_ids.add(n_id)
-            # Check if node is already in shutdown state. If not, call
-            # shutdown, but warn, because the parent node should have
-            # done that!
             r_node = self.nodes[n_id]
-            if r_node.state != BTNodeState.SHUTDOWN:
-                # It's reasonable to expect parent to not be None here, since
-                # the node is one of a list of children
-                if r_node.parent is None:
-                    self.get_logger().error(
-                        f"Node {r_node.name} appears to be a child with no parent"
-                    )
-                    continue
-                self.get_logger().warn(
-                    f"Node {r_node.name} was not shut down. "
-                    "Shutdown of child nodes should be handled in the base `Node` class."
-                )
-                r_node.shutdown()
 
             # If we have a parent, remove the node from that parent
             # TODO Why this convoluted double lookup, the `parent` reference should be good?
@@ -372,31 +344,6 @@ class TreeEditManager(TreeExecManager):
             # If we're not removing the children, at least set their parent to None
             for child in target_node.children:
                 child.parent = None
-
-        # Keep tree structure up-to-date
-        # TODO The unwire_data call above should already update this
-        self._tree_structure.data_wirings = [
-            wiring
-            for wiring in self._tree_structure.data_wirings
-            # Wirings coming from the internal state will have valid node ids
-            if (
-                ros_to_uuid(wiring.source.node_id).unwrap() not in removed_node_ids
-                and ros_to_uuid(wiring.target.node_id).unwrap() not in removed_node_ids
-            )
-        ]
-
-        self._tree_structure.public_inputs = [
-            data
-            for data in self._tree_structure.public_inputs
-            # Data coming from the internal state will have valid node ids
-            if ros_to_uuid(data.node_id).unwrap() not in removed_node_ids
-        ]
-        self._tree_structure.public_outputs = [
-            data
-            for data in self._tree_structure.public_outputs
-            # Data coming from the internal state will have valid node ids
-            if ros_to_uuid(data.node_id).unwrap() not in removed_node_ids
-        ]
 
         for n_id in removed_node_ids:
             self.subtree_manager.remove_subtree(n_id)

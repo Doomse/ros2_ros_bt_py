@@ -29,7 +29,11 @@ from typing import assert_type, cast
 
 from ros_bt_py.vendor.result import Err, Result, Ok, do
 
-from ros_bt_py.data_types import BuiltinOrRosType, IntType, ReferenceType, FloatType
+from ros_bt_py.data_types import (
+    BuiltinOrRosType,
+    BuiltinType,
+    ReferenceType,
+)
 from ros_bt_py.exceptions import BehaviorTreeException
 from ros_bt_py.helpers import BTNodeState
 from ros_bt_py.node import Leaf, define_bt_node
@@ -130,15 +134,11 @@ class CompareNewOnly(Leaf):
 @define_bt_node(
     NodeConfig(
         version="0.1.0",
-        inputs={"a": IntType(), "b": IntType()},
-        outputs={},
-        max_children=0,
-    )
-)
-@define_bt_node(
-    NodeConfig(
-        version="0.1.0",
-        inputs={"a": FloatType(), "b": FloatType()},
+        inputs={
+            "operand_type": BuiltinType(valid_types=[int, float]),
+            "a": ReferenceType(reference="operand_type"),
+            "b": ReferenceType(reference="operand_type"),
+        },
         outputs={},
         max_children=0,
     )

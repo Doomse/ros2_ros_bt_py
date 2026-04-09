@@ -27,40 +27,42 @@
 # POSSIBILITY OF SUCH DAMAGE.
 import operator
 import math
-from typing import Callable, TypeVar
+from typing import Callable, Any
 
 from typeguard import typechecked
 
 from ros_bt_py.vendor.result import Result, Ok, Err, do
 
-from ros_bt_py.data_types import BuiltinType, ReferenceType, StringType
+from ros_bt_py.data_types import (
+    BuiltinType,
+    ReferenceType,
+    StringType,
+    BoolType,
+    NumericContainer,
+)
 from ros_bt_py.exceptions import BehaviorTreeException
 from ros_bt_py.helpers import BTNodeState
 from ros_bt_py.node import Leaf, define_bt_node
 from ros_bt_py.node_config import NodeConfig
 
 
-IN = TypeVar("IN")
-OUT = TypeVar("OUT")
-
-
 @typechecked
 def get_conversion(
-    in_type: type[IN], out_type: type[OUT]
-) -> Result[Callable[[IN], OUT], BehaviorTreeException]:
+    in_type: type, out_type: type
+) -> Result[Callable[[Any], Any], BehaviorTreeException]:
     if in_type is out_type:
-        return Ok(lambda x: x)  # type: ignore
+        return Ok(lambda x: x)
     elif out_type is str:
         # that should almost always work
-        return Ok(str)  # type: ignore
+        return Ok(str)
     elif in_type is int and out_type is bool:
-        return Ok(bool)  # type: ignore
+        return Ok(bool)
     elif in_type is bool and out_type is int:
-        return Ok(int)  # type: ignore
+        return Ok(int)
     elif in_type is int and out_type is float:
-        return Ok(float)  # type: ignore
+        return Ok(float)
     elif in_type is float and out_type is int:
-        return Ok(int)  # type: ignore
+        return Ok(int)
     else:
         return Err(
             BehaviorTreeException(
@@ -75,6 +77,7 @@ def get_conversion(
         inputs={
             "input_type": BuiltinType(),
             "output_type": BuiltinType(),
+            "clamp": BoolType(allow_dynamic=False),
             "in": ReferenceType("input_type"),
         },
         outputs={"out": ReferenceType("output_type")},
@@ -89,17 +92,41 @@ class Convert(Leaf):
     Useful in many cases indeed.
     """
 
+    def clamp_number(
+        self, number: int | float
+    ) -> Result[int | float, BehaviorTreeException]:
+        match self.outputs._get_item("out"):
+            case Err(e):
+                return Err(e)
+            case Ok(c):
+                container = c
+        if not isinstance(container, NumericContainer):
+            return Err(BehaviorTreeException("Output is not a number"))
+        return Ok(min(max(container.min_value, number), container.max_value))
+
+    def clamp_string(self, string: str) -> Result[str, BehaviorTreeException]:
+        match self.outputs._get_item("out"):
+            case Err(e):
+                return Err(e)
+            case Ok(c):
+                container = c
+        if not isinstance(container, StringType):
+            return Err(BehaviorTreeException("Output is not a string"))
+        return Ok(string[: container.max_length])
+
     def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
         match do(
-            Ok((i, o))
+            Ok((i, o, c))
             for i in self.inputs.get_value_as("input_type", type)
             for o in self.inputs.get_value_as("output_type", type)
+            for c in self.inputs.get_value_as("clamp", bool)
         ):
             case Err(e):
                 return Err(e)
-            case Ok((i, o)):
+            case Ok((i, o, c)):
                 self.in_type = i
                 self.out_type = o
+                self.clamp = c
 
         match get_conversion(self.in_type, self.out_type):
             case Err(e):
@@ -115,12 +142,29 @@ class Convert(Leaf):
         elif self.in_type is int and self.out_type is bool:
             self.loginfo("interpreting 0 as False and != 0 as True")
 
+        # Check if out_type is valid for clamping
+        if self.clamp:
+            if issubclass(self.out_type, (int, float)):
+                self.clamp_func = self.clamp_number
+            elif issubclass(self.out_type, str):
+                self.clamp_func = self.clamp_string
+            else:
+                return Err(
+                    BehaviorTreeException(
+                        f"Clamping for output type {self.out_type} is invalid."
+                    )
+                )
+        else:
+            self.clamp_func = lambda x: Ok(x)
+
         return Ok(BTNodeState.IDLE)
 
     def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
         return (
             self.inputs.get_value_as("in", self.in_type)
-            .and_then(lambda val: self.outputs.set_value("out", self.conversion(val)))
+            .map(lambda val: self.conversion(val))
+            .and_then(lambda val: self.clamp_func(val))
+            .and_then(lambda val: self.outputs.set_value("out", val))
             .map(lambda _: BTNodeState.SUCCEEDED)
         )
 

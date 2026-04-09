@@ -76,10 +76,21 @@ INT_LIMITS = {
 }
 
 
+def int_limits_dict(name: str) -> dict[str, int]:
+    limits = INT_LIMITS[name]
+    return {"min_value": limits[0], "max_value": limits[1]}
+
+
 FLOAT_LIMITS = {
     "float": (-3.4028235e38, 3.4028235e38),
     "double": (-1.7976931348623157e308, 1.7976931348623157e308),
 }
+
+
+def float_limits_dict(name: str) -> dict[str, float]:
+    limits = FLOAT_LIMITS[name]
+    return {"min_value": limits[0], "max_value": limits[1]}
+
 
 # Max uint64 value that exactly matches a float64 value
 INT_FLOAT_MAX = 2**64 - 1616
