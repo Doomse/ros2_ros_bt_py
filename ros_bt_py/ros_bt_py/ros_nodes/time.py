@@ -31,7 +31,7 @@ from ros_bt_py.vendor.result import Result, Ok, Err
 
 from builtin_interfaces.msg import Time
 
-from ros_bt_py.data_types import get_ros_msg_type
+from ros_bt_py.data_types import RosMessageType
 from ros_bt_py.exceptions import BehaviorTreeException
 from ros_bt_py.helpers import BTNodeState
 from ros_bt_py.node import define_bt_node, Leaf
@@ -42,7 +42,7 @@ from ros_bt_py.node_config import NodeConfig
     NodeConfig(
         version="0.1.0",
         inputs={},
-        outputs={"current_time": get_ros_msg_type(Time).unwrap()},
+        outputs={"current_time": RosMessageType(Time)},
         max_children=0,
     )
 )

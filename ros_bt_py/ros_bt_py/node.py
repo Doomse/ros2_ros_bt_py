@@ -91,7 +91,8 @@ def _check_node_data_match(
     for data in node_data:
         value = node_config.get(data.key)
         if value is None:
-            return False
+            # TODO Assume a dynamically added input/output
+            continue
         match value.from_msg(data.type):
             case Err(_):
                 return False
@@ -253,6 +254,9 @@ class Node(object, metaclass=NodeMeta):
 
         # Copy the class NodeConfig so we can mess with it
         self.node_config = self._node_config.copy()
+        # Set up data map wrappers, they still have access to inputs that are added later.
+        self.inputs = NodeInputMap(f"{self.name}.inputs", self.node_config.inputs)
+        self.outputs = NodeOutputMap(f"{self.name}.outputs", self.node_config.outputs)
 
         unset_inputs: dict[str, DataContainer] = {}
         for key, container in new_inputs.items():
@@ -316,9 +320,6 @@ class Node(object, metaclass=NodeMeta):
                     raise NodeConfigError(e)
                 case Ok(None):
                     pass
-
-        self.inputs = NodeInputMap(f"{self.name}.inputs", self.node_config.inputs)
-        self.outputs = NodeOutputMap(f"{self.name}.outputs", self.node_config.outputs)
 
         # Don't setup automatically - nodes should be available as pure data
         # containers before the user decides to call setup() themselves!
@@ -1061,7 +1062,7 @@ class Node(object, metaclass=NodeMeta):
             new_inputs[io_msg.key] = container
             if isinstance(container, ReferenceContainer):
                 reference_values[io_msg.key] = io_msg.serialized_value
-            else:
+            elif container.is_static:
                 container.deserialize_value(io_msg.serialized_value)
         for key, value in reference_values.items():
             container = new_inputs[key]
@@ -1069,7 +1070,8 @@ class Node(object, metaclass=NodeMeta):
                 # This should NEVER happen given how `reference_values` was built
                 continue
             container.set_type_map(new_inputs)
-            container.deserialize_value(value)
+            if container.is_static:
+                container.deserialize_value(value)
 
         match ros_to_uuid(msg.node_id):
             case Err(e):

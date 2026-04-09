@@ -559,6 +559,7 @@ class TopicPublisher(Leaf):
             error_msg = "Failed to destroy publisher"
             self.logwarn(error_msg)
             return Err(BehaviorTreeException(error_msg))
+        self._publisher = None
         return Ok(BTNodeState.IDLE)
 
     def _do_untick(self) -> Result[BTNodeState, BehaviorTreeException]:

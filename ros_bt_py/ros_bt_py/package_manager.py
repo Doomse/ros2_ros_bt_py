@@ -44,7 +44,7 @@ import rosidl_runtime_py.utilities
 
 from ros_bt_py.vendor.result import Ok, Err
 
-from ros_bt_py.data_types import get_ros_msg_type
+from ros_bt_py.data_types import RosMessageType
 from ros_bt_py.node import Node, load_node_module, increment_name
 from ros_bt_py.helpers import build_message_field_dicts
 from ros_bt_py.ros_helpers import get_message_constant_fields, get_interface_name
@@ -81,12 +81,7 @@ def make_filepath_unique(filepath):
 def data_type_to_message_type(message_type: type) -> MessageType:
     message_type_msg = MessageType()
     message_type_msg.name = get_interface_name(message_type)
-    match get_ros_msg_type(message_type):
-        case Err(e):
-            LOGGER.warn(e)
-            return message_type_msg
-        case Ok(c):
-            container = c
+    container = RosMessageType(message_type)
     message_type_msg.type = container.serialize_type()
     match container.get_element_fields():
         case Err(e):

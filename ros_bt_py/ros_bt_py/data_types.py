@@ -49,6 +49,7 @@ from example_interfaces import msg, srv, action
 
 
 ANY = TypeVar("ANY")
+T = TypeVar("T")
 
 
 class DataContainer(Generic[ANY], abc.ABC):
@@ -212,8 +213,6 @@ class DataContainer(Generic[ANY], abc.ABC):
         if self._value is None:
             return Err(None)
         return Ok(self._value)
-
-    T = TypeVar("T")
 
     @typechecked
     def get_value_as(self, type_: type[T]) -> Result[T, Any]:
@@ -891,8 +890,12 @@ def get_iotype_for_dict(value_dict: dict) -> Result[DataContainer, str]:
     """
     try:
         if value_dict[IDENTIFIER_KEY] == NodeDataType.ROS_INTERFACE_VALUE:
-            return get_ros_msg_type(
-                rosidl_runtime_py.utilities.get_message(value_dict[MESSAGE_KEY])
+            return Ok(
+                RosMessageType(
+                    message_type=rosidl_runtime_py.utilities.get_message(
+                        value_dict[MESSAGE_KEY]
+                    )
+                )
             )
         io_class = None
         for io_type in CONCRETE_IO_TYPES:
@@ -1106,7 +1109,7 @@ class RosContainer(DataContainer[ROS]):
     def is_compatible(self, other: DataContainer) -> TypeGuard[Self]:
         if not super().is_compatible(other):
             return False
-        return self.interface_id != other.interface_id
+        return self.interface_id == other.interface_id
 
     def serialize_type(self) -> NodeDataType:
         type_msg = super().serialize_type()
@@ -1118,6 +1121,7 @@ class RosContainer(DataContainer[ROS]):
 class RosNameContainer(RosContainer[str], BuiltinContainer[str]):
     type_identifier = NodeDataType.ROS_INTERFACE_NAME
     _value = "/foo"
+    _type = str
 
 
 @register_io_type
@@ -1154,7 +1158,7 @@ class RosMessage(Protocol):
         raise NotImplementedError
 
 
-class RosMsgContainer(RosContainer[Any]):
+class RosMessageType(RosContainer[Any]):
     """
     This is primarily used as a superclass for the `value_field`
     for RosTopicType and should NEVER be used directly,
@@ -1167,16 +1171,9 @@ class RosMsgContainer(RosContainer[Any]):
     # This message_type is set by the factory function
     message_type: type[RosMessage]
 
-    def __init__(self, value: Optional[Any] = None, *args, **kwargs) -> None:
-        if not hasattr(self, "message_type"):
-            raise RuntimeError(
-                "All conctrete implementations have to specify a message_type. "
-                "Use the factory function."
-            )
-        super().__init__(value=value, *args, **kwargs)
-        # If there is no value given, construct it by default-initializing the message type
-        if value is None:
-            self._value = self.message_type()
+    def __init__(self, message_type: type[RosMessage], *args, **kwargs) -> None:
+        self.message_type = message_type
+        super().__init__(*args, **kwargs)
 
     def is_compatible(self, other: DataContainer) -> TypeGuard[Self]:
         if not super().is_compatible(other):
@@ -1259,21 +1256,6 @@ class RosMsgContainer(RosContainer[Any]):
         return Ok(out_dict)
 
 
-@typechecked
-def get_ros_msg_type(msg_type: type) -> Result[RosMsgContainer, str]:
-    """
-    Get an IO type class for a given ROS message type.
-    """
-    if not rosidl_runtime_py.utilities.is_message(msg_type):
-        return Err(f"Type {msg_type} is not a valid message type")
-    msg_cls = type(
-        f"{msg_type.__name__}Container",
-        (RosMsgContainer,),
-        {"message_type": msg_type},
-    )
-    return Ok(msg_cls())
-
-
 class RosTypeContainer(TypeContainerMixin, RosContainer[type]):
     type_identifier = NodeDataType.ROS_INTERFACE_TYPE
 
@@ -1324,11 +1306,7 @@ class RosTypeContainer(TypeContainerMixin, RosContainer[type]):
                 return Err(None)
             case Ok(v):
                 value = v
-        match get_ros_msg_type(value):
-            case Err(e):
-                raise RuntimeError(f"Cannot identify message type {value} due to {e}")
-            case Ok(t):
-                return Ok(t)
+        return Ok(RosMessageType(message_type=value))
 
 
 @register_io_type
@@ -1580,6 +1558,11 @@ class ReferenceContainer(DataContainer[Any]):
             return None
         return self._inner_type.reset_updated()
 
+    def restore_updated(self) -> None:
+        if self._inner_type is None:
+            return None
+        return self._inner_type.restore_updated()
+
     def _serialize_value(self, value: Any) -> Any:
         if self._inner_type is None:
             return ""
@@ -1711,7 +1694,11 @@ def get_message_field_io_type(field_type: str) -> Result[DataContainer, str]:
 
     # Check if the type matches a message type
     if field_type.find("/") != -1:
-        return get_ros_msg_type(rosidl_runtime_py.utilities.get_message(field_type))
+        return Ok(
+            RosMessageType(
+                message_type=rosidl_runtime_py.utilities.get_message(field_type)
+            )
+        )
 
     if field_type == "boolean":
         return Ok(BoolType())

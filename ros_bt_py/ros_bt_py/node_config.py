@@ -55,6 +55,9 @@ class NodeDataMap:
         return Ok(self.data[key])
 
 
+T = TypeVar("T")
+
+
 @typechecked
 class NodeInputMap(NodeDataMap):
 
@@ -71,8 +74,6 @@ class NodeInputMap(NodeDataMap):
                 )
             case Ok(v):
                 return Ok(v)
-
-    T = TypeVar("T")
 
     def get_value_as(self, key: str, type_: type[T]) -> Result[T, NodeConfigError]:
         match self._get_item(key):
