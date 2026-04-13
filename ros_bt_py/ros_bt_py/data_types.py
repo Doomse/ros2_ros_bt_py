@@ -28,8 +28,6 @@
 import abc
 import builtins
 from copy import deepcopy
-from importlib import import_module
-from inspect import getmodule
 import json
 import re
 from typing import Any, Generic, Iterable, Optional, Protocol, Self, TypeGuard, TypeVar
@@ -237,6 +235,9 @@ class DataContainer(Generic[ANY], abc.ABC):
             self._updated = True
         else:
             self._updated = False
+
+    def flag_updated(self) -> None:
+        self._updated = True
 
     def reset_updated(self) -> None:
         self._updated = False
@@ -475,6 +476,7 @@ class FloatType(NumericContainer[float]):
 
     type_identifier = NodeDataType.FLOAT_TYPE
     _type = float
+    _value = 1.2
     lower_limit, upper_limit = FLOAT_LIMITS["double"]
 
     @classmethod

@@ -415,15 +415,14 @@ class Node(object, metaclass=NodeMeta):
                 container.reset_value()
                 container.reset_updated()
 
-            setup_result = self._do_setup()
-            self._setup_called = True
+            match self._do_setup():
+                case Err(e):
+                    self.state = BTNodeState.BROKEN
+                    return Err(e)
+                case Ok(s):
+                    self.state = s
 
-            if setup_result.is_err():
-                self.state = BTNodeState.BROKEN
-            else:
-                self.state = setup_result.unwrap()
-
-        return setup_result
+        return Ok(self.state)
 
     @abc.abstractmethod
     @typechecked
@@ -477,7 +476,7 @@ class Node(object, metaclass=NodeMeta):
             for container in self.node_config.inputs.values():
                 container.reset_updated()
 
-            valid_state_result = self.check_if_in_invalid_state(
+            match self.check_if_in_invalid_state(
                 allowed_states=[
                     BTNodeState.RUNNING,
                     BTNodeState.SUCCEEDED,
@@ -486,9 +485,11 @@ class Node(object, metaclass=NodeMeta):
                     BTNodeState.UNASSIGNED,
                 ],
                 action_name="tick()",
-            )
-            if valid_state_result.is_err():
-                return Err(valid_state_result.unwrap_err())
+            ):
+                case Err(e):
+                    return Err(e)
+                case Ok(None):
+                    pass
 
             if self.data_flow_manager is not None:
                 match self.data_flow_manager.push_outputs(self.node_id):
@@ -550,22 +551,25 @@ class Node(object, metaclass=NodeMeta):
                 return Err(
                     BehaviorTreeException("Trying to untick uninitialized node!")
                 )
-            untick_result = self._do_untick()
-            if untick_result.is_ok():
-                self.state = untick_result.unwrap()
-            else:
-                self.state = BTNodeState.BROKEN
-                return untick_result
+            match self._do_untick():
+                case Err(e):
+                    self.state = BTNodeState.BROKEN
+                    return Err(e)
+                case Ok(s):
+                    self.state = s
 
-            check_state_result = self.check_if_in_invalid_state(
+            match self.check_if_in_invalid_state(
                 allowed_states=[BTNodeState.IDLE, BTNodeState.PAUSED],
                 action_name="untick()",
-            )
-            if check_state_result.is_err():
-                return Err(check_state_result.unwrap_err())
+            ):
+                case Err(e):
+                    return Err(e)
+                case Ok(None):
+                    pass
 
             for container in self.node_config.outputs.values():
                 container.reset_updated()
+
             return Ok(self.state)
 
     @abc.abstractmethod
@@ -608,24 +612,26 @@ class Node(object, metaclass=NodeMeta):
 
             # Reset input/output state and set outputs to None
             for container in self.node_config.inputs.values():
-                container.restore_updated()
+                container.flag_updated()
 
             for container in self.node_config.outputs.values():
                 container.reset_value()
                 container.reset_updated()
 
-            reset_result = self._do_reset()
-            if reset_result.is_ok():
-                self.state = reset_result.unwrap()
-            else:
-                self.state = BTNodeState.BROKEN
-                return reset_result
-            valid_state_result = self.check_if_in_invalid_state(
-                allowed_states=[BTNodeState.IDLE], action_name="reset()"
-            )
+            match self._do_reset():
+                case Err(e):
+                    self.state = BTNodeState.BROKEN
+                    return Err(e)
+                case Ok(s):
+                    self.state = s
 
-            if valid_state_result.is_err():
-                return Err(valid_state_result.unwrap_err())
+            match self.check_if_in_invalid_state(
+                allowed_states=[BTNodeState.IDLE], action_name="reset()"
+            ):
+                case Err(e):
+                    return Err(e)
+                case Ok(None):
+                    pass
 
             return Ok(self.state)
 
@@ -667,38 +673,29 @@ class Node(object, metaclass=NodeMeta):
         report_state = self._dummy_report_state()
         if self.debug_manager:
             report_state = self.debug_manager.report_state(self, "SHUTDOWN")
-        with report_state:
-            error_result = None
-            if self.state == BTNodeState.SHUTDOWN:
-                self.state = BTNodeState.SHUTDOWN
-                # Call shutdown on all children - this should only set
-                # their state to shutdown
-                for child in self.children:
-                    shutdown_result = child.shutdown()
-                    if shutdown_result.is_err():
-                        self.logwarn(
-                            f"Node {child.name} raised the following error during shutdown"
-                            "Continuing to shutdown other nodes"
-                            f"{shutdown_result.unwrap_err()}"
-                        )
-                        error_result = shutdown_result
 
-            shutdown_result = self._do_shutdown()
-            if shutdown_result.is_ok():
-                self.state = shutdown_result.unwrap()
-            else:
-                self.state = BTNodeState.BROKEN
-                error_result = shutdown_result
+        with report_state:
+
+            error = None
+
+            if self.state != BTNodeState.SHUTDOWN:
+                match self._do_shutdown():
+                    case Err(e):
+                        self.state = BTNodeState.BROKEN
+                        error = e
+                    case Ok(s):
+                        self.state = s
 
             for child in self.children:
-                shutdown_result = child.shutdown()
-                if shutdown_result.is_err():
-                    self.logwarn(
-                        f"Node {child.name} raised the following error during shutdown"
-                        "Continuing to shutdown other nodes"
-                        f"{shutdown_result.unwrap_err()}"
-                    )
-                    error_result = shutdown_result
+                match child.shutdown():
+                    case Err(e):
+                        self.logwarn(
+                            f"Node {child.name} raised the following error during shutdown"
+                            f"Continuing to shutdown other nodes\n{e}"
+                        )
+                        error = e
+                    case Ok(_):
+                        pass
 
             unshutdown_children = [
                 f"{child.name} ({type(child).__name__}), state: {child.state}"
@@ -708,12 +705,11 @@ class Node(object, metaclass=NodeMeta):
             if len(unshutdown_children) > 0:
                 self.logwarn(
                     "Not all children are shut down after calling shutdown(). "
-                    "List of not-shutdown children and states:\n"
-                    f"{unshutdown_children}"
+                    f"List of not-shutdown children and states:\n{unshutdown_children}"
                 )
 
-            if error_result is not None:
-                return error_result
+            if error is not None:
+                return Err(error)
 
             return Ok(self.state)
 
