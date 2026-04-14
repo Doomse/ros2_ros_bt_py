@@ -47,12 +47,18 @@ from example_interfaces import msg, srv, action
 
 
 ANY = TypeVar("ANY")
-T = TypeVar("T")
 
 
 class DataContainer(Generic[ANY], abc.ABC):
+    """
+    The common base class for all node io data types.
+
+    Defines all interfaces to generically interact with data types,
+    as well as basic implementations where applicable.
+    """
+
     # This type_identifier has to be assigned a value in subclass definitions
-    #   and should ALWAYS be static.
+    #   and should only be a class attribute.
     type_identifier: int
 
     allow_dynamic: bool
@@ -111,7 +117,9 @@ class DataContainer(Generic[ANY], abc.ABC):
     @typechecked
     def _dict_from_msg(cls, msg: NodeDataType) -> Result[dict, str]:
         """
-        Subclasses should extend this to add their specific configs
+        Constructs a dictionary of parameters that can be used to initialize this data type.
+
+        Subclasses should extend this to add their specific parameters.
         """
         return Ok(
             {
@@ -126,8 +134,12 @@ class DataContainer(Generic[ANY], abc.ABC):
     @typechecked
     def from_msg(cls, msg: NodeDataType) -> Result[Self, str]:
         """
-        This does only set all type information, not the value.
-        You need to call `deserialize_value` for that.
+        Factory function that returns an instance of this data type,
+        based on the given `NodeDataType` ROS message.
+
+        This only verifies that the type identifier matches and does the final initialization step,
+        the parameters for constructing the data type are handled by
+        the helper function `self._dict_from_msg`.
         """
         if not hasattr(cls, "type_identifier"):
             raise NotImplementedError("Called on abstract base class")
@@ -164,6 +176,10 @@ class DataContainer(Generic[ANY], abc.ABC):
 
     @abc.abstractmethod
     def serialize_type(self) -> NodeDataType:
+        """
+        Returns a serialized version of this data type as a `NodeDataType` ROS message.
+        Subclasses should extend this if there are additional parameters to be added.
+        """
         type_msg = NodeDataType(
             type_identifier=self.type_identifier,
             allow_dynamic=self.allow_dynamic,
@@ -174,8 +190,8 @@ class DataContainer(Generic[ANY], abc.ABC):
 
     def get_runtime_type(self) -> Self:
         """
-        Returns the own runtime type, this is almost always just `self`,
-        except for instances of `ReferenceContainer`.
+        Returns the own runtime type, which is used to determine whether two types
+        have compatible values at runtime (is used to validate wirings between data types).
         """
         run_type = deepcopy(self)
         # At runtime we care whether the value IS static or not,
@@ -188,6 +204,9 @@ class DataContainer(Generic[ANY], abc.ABC):
     @typechecked
     def set_value(self, value: ANY) -> Result[None, str]:
         """
+        Sets the value of this data type, as well as the `updated` flag
+        if the value differs from the previous one.
+
         Subclasses should validate and clean incoming values
             before calling `super().set_value` to assign them.
         """
@@ -198,7 +217,7 @@ class DataContainer(Generic[ANY], abc.ABC):
         # Since we potentially handle numpy arrays, we have to account for `==`
         #   returing an iterable of bools rather than a single bool
         if isinstance(has_changed, Iterable):
-            has_changed = all(has_changed)
+            has_changed = any(has_changed)
         self._updated = has_changed
         self._value = value
         return Ok(None)
@@ -213,7 +232,12 @@ class DataContainer(Generic[ANY], abc.ABC):
         return Ok(self._value)
 
     @typechecked
-    def get_value_as(self, type_: type[T]) -> Result[T, Any]:
+    def get_value_as(self, type_: type[ANY]) -> Result[ANY, Any]:
+        """
+        Coerces the stored value to the given `type_` if possible.
+        Returns `Ok` if the type matches and `Err` if it doesn't,
+        but both results wrap the same value
+        """
         match self.get_value():
             case Err(None):
                 return Err(None)
@@ -231,12 +255,19 @@ class DataContainer(Generic[ANY], abc.ABC):
         return self._updated
 
     def restore_updated(self) -> None:
+        """
+        Set the `updated` flag to `True` if the value is static
+        and `False` if the value is dynamic.
+        """
         if self.is_static:
             self._updated = True
         else:
             self._updated = False
 
     def flag_updated(self) -> None:
+        """
+        Set the `updated` flag to `True`
+        """
         self._updated = True
 
     def reset_updated(self) -> None:
@@ -244,6 +275,11 @@ class DataContainer(Generic[ANY], abc.ABC):
 
     @typechecked
     def serialize_value(self) -> str:
+        """
+        Checks whether this type has a set value. If not, just return an empty string.
+        Calls the `self._serialize_value` helper function to get a json serializable
+        representation of the value, then pass that to `json.dumps`
+        """
         match self.get_value():
             case Err(None):
                 return ""
@@ -266,6 +302,11 @@ class DataContainer(Generic[ANY], abc.ABC):
 
     @typechecked
     def deserialize_value(self, ser_value: str) -> Result[None, str]:
+        """
+        First pass the given serialized value to `json.loads`,
+        then to the `self._deserialize_value` helper function,
+        and finally to `self.set_value`.
+        """
         value = json.loads(ser_value)
         return self._deserialize_value(value).and_then(lambda val: self.set_value(val))
 
@@ -290,7 +331,8 @@ CONTAINER = TypeVar("CONTAINER", bound=DataContainer)
 @typechecked
 def register_io_type(cls: type[CONTAINER]) -> type[CONTAINER]:
     """
-    This decorator is only relevant for discovery from `NodeDataType`
+    This decorator is used to register concrete data types,
+    which allows them to be found when parsing a `NodeDataType` message with `get_iotype_for_msg`.
     """
     if not hasattr(cls, "type_identifier"):
         raise RuntimeError("Registered IO types require a type identifier")
@@ -301,8 +343,8 @@ def register_io_type(cls: type[CONTAINER]) -> type[CONTAINER]:
 @typechecked
 def get_iotype_for_msg(msg: NodeDataType) -> Result[DataContainer, str]:
     """
-    Note that this only constructs the data type, you still have to call
-    `deserialize_value` if you want to parse the value that was passed in.
+    Parses a `NodeDataType` message to a data type class
+    that was registered with `register_io_type`.
     """
     for io_type in CONCRETE_IO_TYPES:
         match io_type.from_msg(msg):
@@ -317,6 +359,11 @@ def get_iotype_for_msg(msg: NodeDataType) -> Result[DataContainer, str]:
 #   It is recommended that implementations specify a container explicitly
 #   E.g. `class ValueType[V](TypeContainerMixin, DataContainer[V])`
 class TypeContainerMixin(DataContainer):
+    """
+    Mixin class to signal that a data type is a valid target for reference types.
+
+    This forces the values to always be static and defines the `get_value_field` interface.
+    """
 
     # Update the defaults and verify that a type container doesn't allow dynamic values
     @typechecked
@@ -347,6 +394,10 @@ BUILTIN = TypeVar("BUILTIN", bool, int, float, str, list, dict, bytes, object)
 
 
 class BuiltinContainer(DataContainer[BUILTIN]):
+    """
+    Common base class for all data type classes that correspond to primitive data types.
+    """
+
     _type: type[BUILTIN]
     _value: BUILTIN
 
@@ -388,6 +439,10 @@ NUM = TypeVar("NUM", int, float)
 
 
 class NumericContainer(BuiltinContainer[NUM]):
+    """
+    Base class for numeric type classes, that are constrained by a minimum and maximum value.
+    """
+
     min_value: NUM
     max_value: NUM
     lower_limit: NUM
@@ -445,8 +500,7 @@ class NumericContainer(BuiltinContainer[NUM]):
 @register_io_type
 class IntType(NumericContainer[int]):
     """
-    This type holds a (64-bit) integer,
-    which can optionally be constrained by upper and lower limits.
+    This type holds an integer value.
     """
 
     type_identifier = NodeDataType.INT_TYPE
@@ -470,8 +524,7 @@ class IntType(NumericContainer[int]):
 @register_io_type
 class FloatType(NumericContainer[float]):
     """
-    This type holds a double,
-    which can optionally be constrained by upper and lower limits.
+    This type holds a floating point value.
     """
 
     type_identifier = NodeDataType.FLOAT_TYPE
@@ -501,8 +554,14 @@ STRING = TypeVar("STRING", str, bytes)
 
 
 class StringContainer(BuiltinContainer[STRING]):
+    """
+    Common base class for all "string-like" data types,
+    which are optionally constrained by a maximum length.
+
+    Alternatively they can be constrained by a set of valid value options.
+    """
+
     max_length: int = INT_FLOAT_MAX
-    strict_length: bool = False
     valid_values: Optional[list[str]]
 
     def __init__(
@@ -534,11 +593,11 @@ class StringContainer(BuiltinContainer[STRING]):
     def set_value(self, value: STRING) -> Result[None, str]:
         if len(value) > self.max_length:
             return Err(f"Length of {value} exceeds maximum of {self.max_length}")
-        if self.strict_length and len(value) < self.max_length:
-            return Err(f"Length of {value} is short of minimum {self.max_length}")
         if self.valid_values is not None:
             if value not in self.valid_values:
-                return Err(f"Value {value} is not a valid value [{self.valid_values}]")
+                return Err(
+                    f"Value {value} is not a valid value of ({self.valid_values})"
+                )
         return super().set_value(value)
 
     def is_compatible(self, other: DataContainer) -> TypeGuard[Self]:
@@ -565,7 +624,7 @@ class StringContainer(BuiltinContainer[STRING]):
 @register_io_type
 class StringType(StringContainer[str]):
     """
-    This type holds a string, which can optionally be limited by length.
+    This type holds a string value.
     """
 
     type_identifier = NodeDataType.STRING_TYPE
@@ -593,8 +652,8 @@ class PathType(StringContainer[str]):
 @register_io_type
 class BytesType(StringContainer[bytes]):
     """
-    This type holds a bytes object, which can optionally be constrained by length.
-    This length restriction is set to 1 (strict) by default,
+    This type holds a bytes object.
+    The length restriction is set to 1 by default,
     since the bytes type is mostly used to fill 'byte' fields in ROS messages,
     which only take one byte.
     Bytes are serializes as hex strings.
@@ -630,6 +689,10 @@ class IterableContainer(BuiltinContainer[ITER]):
     If the element type is omitted, all kinds of values are accepted,
     but value types that can't be serialized as json will silently be
     replaced with "" in any serialized output.
+
+    Iterables can also constrained by a maximum length,
+    with a boolean flag to make that limit 'strict',
+    which means the iterable has to match that maximum length exactly.
 
     Since iterables are usually mutable, this container applies `deepcopy`
     operations on every `get_value` and `set_value` to avoid accidental modification.
@@ -730,12 +793,7 @@ class IterableContainer(BuiltinContainer[ITER]):
 @register_io_type
 class ListType(IterableContainer[list[Any]]):
     """
-    This type holds a list whose values can optionally be typed by
-    providing an `element_type` in the constructor.
-
-    A typed list also uses the serialization of that element type.
-
-    This list can optionally be constrained by length.
+    This type holds a list of values.
     """
 
     type_identifier = NodeDataType.LIST_TYPE
@@ -789,11 +847,8 @@ class ListType(IterableContainer[list[Any]]):
 @register_io_type
 class DictType(IterableContainer[dict[str, Any]]):
     """
-    This type holds a dict whose values can optionally be typed by
-    providing an `element_type` in the constructor.
+    This type holds a dict of values.
     The keys of a dict will always be converted by using `str(...)`.
-
-    A typed dict also uses the serialization of that element type.
     """
 
     type_identifier = NodeDataType.DICT_TYPE
@@ -847,6 +902,7 @@ class DictType(IterableContainer[dict[str, Any]]):
         return Ok(value)
 
 
+# Constants that define the structure of type values for builtin types
 IDENTIFIER_KEY = "type_identifier"
 ELEMENT_KEY = "element_type"
 MESSAGE_KEY = "ros_msg_type"
@@ -888,8 +944,7 @@ BUILTIN_TYPE_MAP: dict[type, dict] = {
 @typechecked
 def get_iotype_for_dict(value_dict: dict) -> Result[DataContainer, str]:
     """
-    Note that this only constructs the data type, you still have to call
-    `deserialize_value` if you want to parse the value that was passed in.
+    Note that this only constructs the data type from a dictionary of type parameters.
     """
     try:
         if value_dict[IDENTIFIER_KEY] == NodeDataType.ROS_INTERFACE_VALUE:
@@ -922,11 +977,17 @@ def get_iotype_for_dict(value_dict: dict) -> Result[DataContainer, str]:
 
 @typechecked
 def serialize_class(cls: type) -> str:
+    """
+    Serialize builtin types
+    """
     return cls.__name__
 
 
 @typechecked
 def deserialize_class(ser_cls: str) -> Result[type, str]:
+    """
+    Deserialize builtin types
+    """
     cls = getattr(builtins, ser_cls, None)
     if cls is None:
         return Err(f"Type {ser_cls} can't be found")
@@ -935,6 +996,9 @@ def deserialize_class(ser_cls: str) -> Result[type, str]:
 
 @typechecked
 def serialize_type_map_value(val: dict) -> dict:
+    """
+    Helper function to serialize type values.
+    """
     value_dict = deepcopy(val)
     # Coerce int & float values to string to avoid loss of precision
     if "min_value" in value_dict.keys():
@@ -948,6 +1012,9 @@ def serialize_type_map_value(val: dict) -> dict:
 
 @typechecked
 def deserialize_type_map_value(val: dict) -> dict:
+    """
+    Helper function to deserialize type values.
+    """
     value_dict = deepcopy(val)
     if value_dict[IDENTIFIER_KEY] == NodeDataType.INT_TYPE:
         converter = int
@@ -969,6 +1036,9 @@ def deserialize_type_map_value(val: dict) -> dict:
 
 @typechecked
 def serialize_type_map(keys: list[type]) -> list[str]:
+    """
+    Serialize the valid value list for builtin types.
+    """
     ser_list: list[str] = []
     for key in keys:
         if key not in BUILTIN_TYPE_MAP.keys():
@@ -984,8 +1054,10 @@ def serialize_type_map(keys: list[type]) -> list[str]:
 @register_io_type
 class BuiltinType(TypeContainerMixin, BuiltinContainer[dict]):
     """
-    This holds a builtin type from the `BUILTIN_TYPE_MAP` keys,
-    which can optionally be a constrained further by supplying a list of valid types.
+    This holds a type value from the `BUILTIN_TYPE_MAP` keys,
+    which correspond to data types inheriting from `BuiltinContainer`.
+
+    The list of valid types can optionally be constrained by supplying a list of builtin types.
     """
 
     type_identifier = NodeDataType.BUILTIN_TYPE
@@ -1065,10 +1137,14 @@ class BuiltinType(TypeContainerMixin, BuiltinContainer[dict]):
         )
 
 
-ROS = TypeVar("ROS")
+class RosContainer(DataContainer):
+    """
+    Common base class for all data types related to ROS components (topics, services, actions).
 
+    These types are further identified by the kind of interface they refer to,
+    as well as an interface id to connect for example the name and type fields of the same service.
+    """
 
-class RosContainer(DataContainer[ROS]):
     # This `interface_kind` has to be assigned a value in subclass definitions
     #   and should ONLY be a class attribute
     interface_kind: int
@@ -1121,7 +1197,12 @@ class RosContainer(DataContainer[ROS]):
         return type_msg
 
 
-class RosNameContainer(RosContainer[str], BuiltinContainer[str]):
+class RosNameContainer(RosContainer, BuiltinContainer[str]):
+    """
+    Common base class for ROS interface names.
+    Also inherits from `BuiltinContainer` to include all necessary functionality.
+    """
+
     type_identifier = NodeDataType.ROS_INTERFACE_NAME
     _value = "/foo"
     _type = str
@@ -1155,6 +1236,9 @@ class RosActionName(RosNameContainer):
 
 
 class RosMessage(Protocol):
+    """
+    Structural base class for all ROS messages
+    """
 
     @classmethod
     def get_fields_and_field_types(cls) -> dict[str, str]:
@@ -1162,11 +1246,9 @@ class RosMessage(Protocol):
 
 
 @register_io_type
-class RosMessageType(RosContainer[Any]):
+class RosMessageType(RosContainer):
     """
-    This is primarily used as a superclass for the `value_field`
-    for RosTopicType and should NEVER be used directly,
-    as it requires specifying a message type as a class attribute.
+    Holds the values for a given ROS message, which has to be specified on `init`.
     """
 
     type_identifier = NodeDataType.ROS_INTERFACE_VALUE
@@ -1261,7 +1343,14 @@ class RosMessageType(RosContainer[Any]):
         return Ok(out_dict)
 
 
-class RosTypeContainer(TypeContainerMixin, RosContainer[type]):
+class RosTypeContainer(TypeContainerMixin, RosContainer):
+    """
+    Common base class for all ROS message types.
+
+    Defines an abstract `self._validate` method which checks
+    if the given type is actually a ROS message.
+    """
+
     type_identifier = NodeDataType.ROS_INTERFACE_TYPE
 
     # Adapt defaults to common use case of type specification (static only)
@@ -1369,8 +1458,7 @@ class RosComponentType(RosTypeContainer):
     This type holds component message types.
 
     This behaves similar to `RosTopicType`,
-    except that this is not a valid `ReferenceType` target.
-    The interface type indicates that we also want to allow
+    except that the interface type indicates that we also want to allow
     interface components like `Service_Request` or `Action_Goal`.
     """
 
@@ -1389,8 +1477,6 @@ class BuiltinOrRosType(TypeContainerMixin, DataContainer[dict | type]):
     This acts as a either a `BuiltinType` or a `RosTopicType`,
     depending on whether `ros_interface_kind` is set to `ROS_UNDEFINED` or `ROS_TOPIC`.
     Note that this doesn't support the restrictions that can be placed on `BuiltinType`.
-    It is expected that this is replaced with either of the above
-    when a node is fully configured.
     """
 
     type_identifier = NodeDataType.BUILTIN_OR_ROS_TYPE
@@ -1479,6 +1565,14 @@ class BuiltinOrRosType(TypeContainerMixin, DataContainer[dict | type]):
 
 
 class ReferenceContainer(DataContainer[Any]):
+    """
+    Common base class for all reference types.
+    Reference types imitate other data types based on the referenced type value.
+    The data type being imitated is stored as `self._inner_type`.
+
+    Defines additional functions necessary to fully initialize these reference types.
+    """
+
     _value: None = None
     _reference: str
     _container_map: dict[str, DataContainer[Any]] = {}
@@ -1501,6 +1595,9 @@ class ReferenceContainer(DataContainer[Any]):
         self._reference = reference
 
     def _set_inner_type(self) -> Result[None, str]:
+        """
+        Sets the final type of this reference based on the referenced type value.
+        """
         if self._reference not in self._container_map:
             return Err(f"Given reference {self._reference} is invalid")
         ref_obj = self._container_map[self._reference]
@@ -1518,6 +1615,10 @@ class ReferenceContainer(DataContainer[Any]):
 
     @typechecked
     def set_type_map(self, new_map: dict[str, DataContainer[Any]]) -> Result[None, str]:
+        """
+        Sets the map of data types that the given reference points to.
+        This is necessary for reference types to work properly.
+        """
         self._container_map = new_map
         return self._set_inner_type()
 
@@ -1529,11 +1630,16 @@ class ReferenceContainer(DataContainer[Any]):
                 return Err(e)
             case Ok(c):
                 config = c
+        # Reference types don't accept a value param on init
         config.pop("value")
         config["reference"] = msg.reference_target
         return Ok(config)
 
     def is_compatible(self, other: DataContainer) -> TypeGuard[Self]:
+        """
+        Compatibility here is only evaluated within exact matching references.
+        See also `self.get_runtime_type`
+        """
         if not super().is_compatible(other):
             return False
         return self._reference == other._reference
@@ -1549,6 +1655,10 @@ class ReferenceContainer(DataContainer[Any]):
 
     @typechecked
     def get_runtime_type(self) -> DataContainer:
+        """
+        Reference types are fully transparent at runtime,
+        simply forwarding the type information from the concrete inner type.
+        """
         if self._inner_type is None:
             return self
         return self._inner_type.get_runtime_type()
@@ -1598,15 +1708,20 @@ class ReferenceContainer(DataContainer[Any]):
 @register_io_type
 class ReferenceType(ReferenceContainer):
     """
-    This IO type holds a reference to another IO type that holds a
-    basic type as its value.
-    This type acts as an IO type for that basic type.
+    The basic reference type.
     """
 
     type_identifier = NodeDataType.REFERENCE_TYPE
 
 
 class IterableReferenceContainer(ReferenceContainer):
+    """
+    A container for iterable references.
+
+    Works similar to the standard `IterableContainer`,
+    with the difference that the element type is determined by the referenced type value.
+    """
+
     max_length: int = 2**64 - 1
     strict_length: bool = False
 
@@ -1636,9 +1751,8 @@ class IterableReferenceContainer(ReferenceContainer):
 @register_io_type
 class ReferenceListType(ReferenceContainer):
     """
-    This IO type holds a reference to another IO type that holds a
-    basic type as its value.
-    This type acts as an IO type for a list of that basic type.
+    A reference type for lists.
+    Works like the basic `ListType`, with the element type being set by reference
     """
 
     type_identifier = NodeDataType.REFERENCE_LIST_TYPE
@@ -1657,9 +1771,8 @@ class ReferenceListType(ReferenceContainer):
 @register_io_type
 class ReferenceDictType(ReferenceContainer):
     """
-    This IO type holds a reference to another IO type that holds a
-    basic type as its value.
-    This type acts as an IO type for a dict with values of that basic type.
+    A reference type for dicts.
+    Works like the basic `DictType`, with the element type being set by reference
     """
 
     type_identifier = NodeDataType.REFERENCE_DICT_TYPE
@@ -1677,6 +1790,10 @@ class ReferenceDictType(ReferenceContainer):
 
 @typechecked
 def get_message_field_io_type(field_type: str) -> Result[DataContainer, str]:
+    """
+    Constructs a data type based on the field type of a ROS message field,
+    as given by the `get_fields_and_field_types()` function.
+    """
     # Checks if the type matches a sequence definition and extracts the element-type and bounds
     match_sequence = re.match(r"sequence<([\w\/<>]+)(?:, (\d+))?>", field_type)
     # Checks if the type matches an array definition and extracts the element-type and bounds
@@ -1688,10 +1805,12 @@ def get_message_field_io_type(field_type: str) -> Result[DataContainer, str]:
         if match_array:
             nested_type_str, max_len_str = match_array.groups()
             is_static = True
+
         if max_len_str is None:
             max_len = None
         else:
             max_len = int(max_len_str)
+
         match get_message_field_io_type(nested_type_str):
             case Err(e):
                 return Err(e)
