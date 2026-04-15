@@ -80,50 +80,7 @@ from ros_bt_py.helpers import BTNodeState
 from ros_bt_py.ros_helpers import ros_to_uuid, uuid_to_ros
 
 
-class NodeMeta(abc.ABCMeta):
-    """
-    Override the __doc__ property to add a list of BT params.
-
-    (inputs, outputs and options) to every node class.
-    """
-
-    _node_config: NodeConfig
-    _doc: str = ""
-
-    def __new__(cls, name, bases, attrs):
-        """Add doc attribute to the new NodeMeta class."""
-        attrs["_doc"] = attrs.get("__doc__", "")
-        return super(NodeMeta, cls).__new__(cls, name, bases, attrs)
-
-    @property
-    def __doc__(self) -> Optional[str]:
-        """Generate documentation depending on the node configuration."""
-        if hasattr(self, "_node_config"):
-            # Build table of inputs, outputs and options
-            # Start with two newlines to separate from the original docstring
-            param_table = ["\n\n" "**Behavior Tree I/O keys**\n\n"]
-            if self._node_config.inputs:
-                param_table.append("*Inputs*\n\n")
-                for input_key in self._node_config.inputs:
-                    param_table.append(
-                        f"* {input_key}: :class:"
-                        f"`{self._node_config.inputs[input_key]}`\n"
-                    )
-                param_table.append("\n")
-            if self._node_config.outputs:
-                param_table.append("*Outputs*\n\n")
-                for output_key in self._node_config.outputs:
-                    param_table.append(
-                        f"* {output_key}: :class:"
-                        f"`{self._node_config.outputs[output_key]}`\n"
-                    )
-                param_table.append("\n")
-            return self._doc + "".join(param_table)
-        else:
-            return self._doc
-
-
-class Node(object, metaclass=NodeMeta):
+class Node(abc.ABC):
     """
     Base class for Behavior Tree nodes.
 
@@ -147,6 +104,9 @@ class Node(object, metaclass=NodeMeta):
       single child and work with that child's result - for instance, a *Decorator*
       could invert `FAILED` into `SUCCEEDED`.
     """
+
+    # Config template for each specific node class
+    _node_config: NodeConfig
 
     @contextmanager
     def _dummy_report_state(self):
