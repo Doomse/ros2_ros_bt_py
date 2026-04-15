@@ -42,7 +42,7 @@ from ros_bt_py.node_config import NodeConfig
     NodeConfig(
         version="0.1.0",
         inputs={},
-        outputs={"current_time": RosMessageType(Time)},
+        outputs={"current_time": RosMessageType(message_type=Time)},
         max_children=0,
     )
 )

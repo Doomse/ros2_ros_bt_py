@@ -45,7 +45,7 @@ from ros_bt_py.node_config import NodeConfig
         version="0.1.0",
         inputs={
             "compare_type": BuiltinOrRosType(),
-            "a": ReferenceType(reference="compare_type"),
+            "a": ReferenceType(reference="compare_type", is_static=False),
             "b": ReferenceType(reference="compare_type"),
         },
         outputs={},
@@ -86,7 +86,7 @@ class Compare(Leaf):
         version="0.1.0",
         inputs={
             "compare_type": BuiltinOrRosType(),
-            "a": ReferenceType(reference="compare_type"),
+            "a": ReferenceType(reference="compare_type", is_static=False),
             "b": ReferenceType(reference="compare_type"),
         },
         outputs={},
@@ -136,7 +136,7 @@ class CompareNewOnly(Leaf):
         version="0.1.0",
         inputs={
             "operand_type": BuiltinType(valid_types=[int, float]),
-            "a": ReferenceType(reference="operand_type"),
+            "a": ReferenceType(reference="operand_type", is_static=False),
             "b": ReferenceType(reference="operand_type"),
         },
         outputs={},

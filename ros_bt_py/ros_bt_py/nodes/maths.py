@@ -77,7 +77,6 @@ def get_conversion(
         inputs={
             "input_type": BuiltinType(),
             "output_type": BuiltinType(),
-            "clamp": BoolType(allow_dynamic=False),
             "in": ReferenceType("input_type"),
         },
         outputs={"out": ReferenceType("output_type")},
@@ -91,28 +90,6 @@ class Convert(Leaf):
 
     Useful in many cases indeed.
     """
-
-    def clamp_number(
-        self, number: int | float
-    ) -> Result[int | float, BehaviorTreeException]:
-        match self.outputs._get_item("out"):
-            case Err(e):
-                return Err(e)
-            case Ok(c):
-                container = c
-        if not isinstance(container, NumericContainer):
-            return Err(BehaviorTreeException("Output is not a number"))
-        return Ok(min(max(container.min_value, number), container.max_value))
-
-    def clamp_string(self, string: str) -> Result[str, BehaviorTreeException]:
-        match self.outputs._get_item("out"):
-            case Err(e):
-                return Err(e)
-            case Ok(c):
-                container = c
-        if not isinstance(container, StringType):
-            return Err(BehaviorTreeException("Output is not a string"))
-        return Ok(string[: container.max_length])
 
     def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
         match do(
@@ -142,28 +119,12 @@ class Convert(Leaf):
         elif self.in_type is int and self.out_type is bool:
             self.loginfo("interpreting 0 as False and != 0 as True")
 
-        # Check if out_type is valid for clamping
-        if self.clamp:
-            if issubclass(self.out_type, (int, float)):
-                self.clamp_func = self.clamp_number
-            elif issubclass(self.out_type, str):
-                self.clamp_func = self.clamp_string
-            else:
-                return Err(
-                    BehaviorTreeException(
-                        f"Clamping for output type {self.out_type} is invalid."
-                    )
-                )
-        else:
-            self.clamp_func = lambda x: Ok(x)
-
         return Ok(BTNodeState.IDLE)
 
     def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
         return (
             self.inputs.get_value_as("in", self.in_type)
             .map(lambda val: self.conversion(val))
-            .and_then(lambda val: self.clamp_func(val))
             .and_then(lambda val: self.outputs.set_value("out", val))
             .map(lambda _: BTNodeState.SUCCEEDED)
         )

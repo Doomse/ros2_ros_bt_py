@@ -37,7 +37,7 @@ from ros_bt_py.node_config import NodeConfig
 @define_bt_node(
     NodeConfig(
         version="0.1.0",
-        inputs={"tick_interval": FloatType(allow_dynamic=False)},
+        inputs={"tick_interval": FloatType(allow_dynamic=False, min_value=0)},
         outputs={},
         max_children=1,
     )
