@@ -751,8 +751,8 @@ class IterableContainer(BuiltinContainer[ITER]):
                 return Err(e)
             case Ok(c):
                 config["element_type"] = c
-        config["iterable_max_length"] = msg.iterable_max_length[0]
-        config["iterable_strict_length"] = msg.iterable_strict_length[0]  # type: ignore
+        config["max_length"] = msg.iterable_max_length[0]
+        config["strict_length"] = msg.iterable_strict_length[0]  # type: ignore
         return Ok(config)
 
     def is_compatible(self, other: DataContainer) -> TypeGuard[Self]:
@@ -811,34 +811,19 @@ class ListType(IterableContainer[list[Any]]):
         return super().set_value(value)
 
     @typechecked
-    def _serialize_value(self, value: list[Any]) -> list[str]:
+    def _serialize_value(self, value: list[Any]) -> list[Any]:
         serialized_list = []
         for item in value:
-            match self._element_type.set_value(item):
-                # Since these are internal values, they should NEVER be invalid
-                #   we checked them on assignment.
-                case Err(_):
-                    ser_item = ""
-                case Ok(None):
-                    ser_item = self._element_type.serialize_value()
-            # Unapply the final serialization step of the element type
-            serialized_list.append(json.loads(ser_item))
+            serialized_list.append(self._element_type._serialize_value(item))
         return serialized_list
 
     @typechecked
-    def _deserialize_value(self, ser_value: list[str]) -> Result[list[Any], str]:
+    def _deserialize_value(self, ser_value: list[Any]) -> Result[list[Any], str]:
         value = []
         for item in ser_value:
-            # Reapply the final serialization step of the element type
-            match self._element_type.deserialize_value(json.dumps(item)):
+            match self._element_type._deserialize_value(item):
                 case Err(e):
                     return Err(e)
-                case Ok(None):
-                    pass
-            match self._element_type.get_value():
-                case Err(None):
-                    # This should NEVER happen after a successful deserialization
-                    value.append(None)
                 case Ok(v):
                     value.append(v)
         return Ok(value)
@@ -870,33 +855,18 @@ class DictType(IterableContainer[dict[str, Any]]):
     def _serialize_value(self, value: dict[str, Any]) -> dict[str, str]:
         serialized_dict: dict[str, str] = {}
         for key, item in value.items():
-            match self._element_type.set_value(item):
-                # Since these are internal values, they should NEVER be invalid
-                #   we checked them on assignment.
-                case Err(_):
-                    ser_item = ""
-                case Ok(None):
-                    ser_item = self._element_type.serialize_value()
-            # Unapply the final serialization step of the element type
-            serialized_dict[key] = json.loads(ser_item)
+            serialized_dict[key] = self._element_type._serialize_value(item)
         return serialized_dict
 
     @typechecked
     def _deserialize_value(
-        self, ser_value: dict[str, str]
+        self, ser_value: dict[str, Any]
     ) -> Result[dict[str, Any], str]:
         value = {}
         for key, item in ser_value.items():
-            # Reapply the final serialization step of the element type
-            match self._element_type.deserialize_value(json.dumps(item)):
+            match self._element_type._deserialize_value(item):
                 case Err(e):
                     return Err(e)
-                case Ok(None):
-                    pass
-            match self._element_type.get_value():
-                case Err(None):
-                    # This should NEVER happen after a successful deserialization
-                    value[key] = None
                 case Ok(v):
                     value[key] = v
         return Ok(value)
@@ -1292,13 +1262,9 @@ class RosMessageType(RosContainer):
                 field_dict = d
         out_dict = {}
         for field_name, field_type in field_dict.items():
-            match field_type.set_value(getattr(value, field_name, None)):
-                case Err(_):
-                    return {}
-                case Ok(None):
-                    pass
-            # Unapply the final serialization step of the field type
-            out_dict[field_name] = json.loads(field_type.serialize_value())
+            out_dict[field_name] = field_type._serialize_value(
+                getattr(value, field_name, None)
+            )
         return out_dict
 
     @typechecked
@@ -1312,15 +1278,9 @@ class RosMessageType(RosContainer):
         for field_name, field_value in ser_value.items():
             if field_name in field_dict.keys():
                 field_type = field_dict[field_name]
-                # Reapply the final serialization step of the field type
-                match field_type.deserialize_value(json.dumps(field_value)):
+                match field_type._deserialize_value(field_value):
                     case Err(e):
                         return Err(e)
-                    case Ok(None):
-                        pass
-                match field_type.get_value():
-                    case Err(None):
-                        pass
                     case Ok(v):
                         setattr(value, field_name, v)
             else:
@@ -1695,13 +1655,12 @@ class ReferenceContainer(DataContainer[Any]):
 
     def _serialize_value(self, value: Any) -> Any:
         if self._inner_type is None:
-            return ""
+            return None
         return self._inner_type._serialize_value(value)
 
     def _deserialize_value(self, ser_value: Any) -> Result[Any, str]:
         if self._inner_type is None:
-            # Accept and ignore all serialized values if no inner type is set.
-            return Ok(None)
+            return Err("Reference without inner type doesn't accept values")
         return self._inner_type._deserialize_value(ser_value)
 
 
