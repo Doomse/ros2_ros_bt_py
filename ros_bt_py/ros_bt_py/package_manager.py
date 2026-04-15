@@ -435,41 +435,40 @@ class PackageManager(object):
 
         response.available_nodes = []
         for module, nodes in Node.node_classes.items():
-            for class_name, node_classes in nodes.items():
-                for node_class in node_classes:
-                    if not node_class._node_config:
-                        LOGGER.warn(
-                            f"Node class: {node_class.__name__} does not have node config!"
-                        )
-                        continue
-                    max_children = node_class._node_config.max_children
-                    max_children = -1 if max_children is None else max_children
-                    doc = inspect.getdoc(node_class) or ""
-                    response.available_nodes.append(
-                        DocumentedNode(
-                            module=module,
-                            node_class=class_name,
-                            version=node_class._node_config.version,
-                            max_children=max_children,
-                            inputs=[
-                                NodeIO(
-                                    key=key,
-                                    type=cont.serialize_type(),
-                                    serialized_value=cont.serialize_value(),
-                                )
-                                for key, cont in node_class._node_config.inputs.items()
-                            ],
-                            outputs=[
-                                NodeIO(
-                                    key=key,
-                                    type=cont.serialize_type(),
-                                )
-                                for key, cont in node_class._node_config.outputs.items()
-                            ],
-                            doc=str(doc),
-                            tags=node_class._node_config.tags,
-                        )
+            for class_name, node_class in nodes.items():
+                if not node_class._node_config:
+                    LOGGER.warn(
+                        f"Node class: {node_class.__name__} does not have node config!"
                     )
+                    continue
+                max_children = node_class._node_config.max_children
+                max_children = -1 if max_children is None else max_children
+                doc = inspect.getdoc(node_class) or ""
+                response.available_nodes.append(
+                    DocumentedNode(
+                        module=module,
+                        node_class=class_name,
+                        version=node_class._node_config.version,
+                        max_children=max_children,
+                        inputs=[
+                            NodeIO(
+                                key=key,
+                                type=cont.serialize_type(),
+                                serialized_value=cont.serialize_value(),
+                            )
+                            for key, cont in node_class._node_config.inputs.items()
+                        ],
+                        outputs=[
+                            NodeIO(
+                                key=key,
+                                type=cont.serialize_type(),
+                            )
+                            for key, cont in node_class._node_config.outputs.items()
+                        ],
+                        doc=str(doc),
+                        tags=node_class._node_config.tags,
+                    )
+                )
 
         response.success = True
         return response

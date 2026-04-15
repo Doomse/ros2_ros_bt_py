@@ -42,11 +42,7 @@ from typing import (
     Any,
     Callable,
     Generator,
-    Iterable,
-    List,
     Tuple,
-    Type,
-    Dict,
     Optional,
     TypeVar,
 )
@@ -82,25 +78,6 @@ from ros_bt_py.exceptions import (
 from ros_bt_py.node_config import NodeConfig, NodeInputMap, NodeOutputMap
 from ros_bt_py.helpers import BTNodeState
 from ros_bt_py.ros_helpers import ros_to_uuid, uuid_to_ros
-
-
-@typechecked
-def _check_node_data_match(
-    node_config: Dict[str, DataContainer], node_data: Iterable[NodeIO]
-) -> bool:
-    for data in node_data:
-        value = node_config.get(data.key)
-        if value is None:
-            # TODO Assume a dynamically added input/output
-            continue
-        match value.from_msg(data.type):
-            case Err(_):
-                return False
-            case Ok(c):
-                container = c
-        if not value.is_compatible(container):
-            return False
-    return True
 
 
 class NodeMeta(abc.ABCMeta):
@@ -181,7 +158,7 @@ class Node(object, metaclass=NodeMeta):
         self.logdebug("Ticking without debug manager")
         yield
 
-    node_classes: Dict[str, Dict[str, List[Type["Node"]]]] = {}
+    node_classes: dict[str, dict[str, type["Node"]]] = {}
     debug_manager: Optional[DebugManager]
     subtree_manager: Optional[SubtreeManager]
     logging_manager: Optional[LoggingManager]
@@ -238,7 +215,7 @@ class Node(object, metaclass=NodeMeta):
         # Only used to make finding the root of the tree easier
         self.parent: Optional[Node] = None
         self._state: BTNodeState = BTNodeState.UNINITIALIZED
-        self.children: List[Node] = []
+        self.children: list[Node] = []
 
         self.subscriptions: list[Wiring] = []
         self.subscribers: list[tuple[Wiring, Callable[[type], None], type]] = []
@@ -456,6 +433,13 @@ class Node(object, metaclass=NodeMeta):
         with report_tick:
             if self.state is BTNodeState.UNINITIALIZED:
                 return Err(BehaviorTreeException("Trying to tick uninitialized node!"))
+
+            # Check if any inputs are unset, if so return an error
+            for key, container in self.node_config.inputs.items():
+                # We access _value directly to avoid the copy operation in get_value
+                if container._value is None:
+                    self.state = BTNodeState.BROKEN
+                    return Err(BehaviorTreeException(f"Input for key {key} is unset."))
 
             # Outputs are updated in the tick. To catch that, we need to reset here.
             for container in self.node_config.outputs.values():
@@ -960,7 +944,7 @@ class Node(object, metaclass=NodeMeta):
     @classmethod
     @typechecked
     def from_msg(
-        cls: Type["Node"],
+        cls: type["Node"],
         msg: NodeStructure,
         ros_node: ROSNode,
         debug_manager: Optional[DebugManager] = None,
@@ -1019,31 +1003,7 @@ class Node(object, metaclass=NodeMeta):
                 )
             )
 
-        candidates: List[Type[Node]] = list(
-            filter(
-                lambda node_class_candidate: _check_node_data_match(
-                    node_class_candidate._node_config.inputs, msg.inputs
-                )
-                and _check_node_data_match(
-                    node_class_candidate._node_config.outputs, msg.outputs
-                ),
-                cls.node_classes[msg.module][msg.node_class],
-            )
-        )
-        if len(candidates) < 1:
-            return Err(
-                BehaviorTreeException(
-                    "Failed to instantiate node from message - node class not available."
-                )
-            )
-        if len(candidates) > 1:
-            return Err(
-                BehaviorTreeException(
-                    "Failed to instantiate node from message - "
-                    "multiple versions of node class available."
-                )
-            )
-        node_class = candidates[0]
+        node_class = Node.node_classes[msg.module][msg.node_class]
 
         new_inputs: dict[str, DataContainer] = {}
         reference_values: dict[str, str] = {}
@@ -1104,7 +1064,7 @@ class Node(object, metaclass=NodeMeta):
     def get_subtree_msg(
         self,
     ) -> Result[
-        Tuple[TreeStructure, List[Wiring], List[Wiring]], BehaviorTreeException
+        Tuple[TreeStructure, list[Wiring], list[Wiring]], BehaviorTreeException
     ]:
         """
         Populate a TreeMsg with the subtree rooted at this node.
@@ -1145,13 +1105,13 @@ class Node(object, metaclass=NodeMeta):
         #   because they ensure that `.append` exists
         subtree.data_wirings = []
 
-        node_map: Dict[uuid.UUID, NodeStructure] = {
+        node_map: dict[uuid.UUID, NodeStructure] = {
             # Since this is internal data, we assume ids to be safe
             ros_to_uuid(node.node_id).unwrap(): node
             for node in subtree.nodes
         }
-        incoming_connections: List[Wiring] = []
-        outgoing_connections: List[Wiring] = []
+        incoming_connections: list[Wiring] = []
+        outgoing_connections: list[Wiring] = []
         for node in self.get_children_recursive():
             for sub in node.subscriptions:
                 # Since this is internal data, we assume ids to be safe
@@ -1280,60 +1240,24 @@ def define_bt_node(node_config: NodeConfig) -> Callable[[type[N]], type[N]]:
         if inspect.isabstract(node_class):
             # Don't register abstract classes
             rclpy.logging.get_logger(node_class.__name__).warn(
-                f"Assigned NodeData to class {node_class.__name__}, but did not register "
+                f"Assigned NodeConfig to class {node_class.__name__}, but did not register "
                 f"the class because it does not implement all required methods. "
                 f"Missing methods: {', '.join(node_class.__abstractmethods__)}",
             )
             return node_class
 
         if node_class.__module__ not in Node.node_classes:
-            Node.node_classes[node_class.__module__] = {
-                node_class.__name__: [node_class]
-            }
+            Node.node_classes[node_class.__module__] = {node_class.__name__: node_class}
             return node_class
 
         if node_class.__name__ not in Node.node_classes[node_class.__module__]:
-            Node.node_classes[node_class.__module__][node_class.__name__] = [node_class]
+            Node.node_classes[node_class.__module__][node_class.__name__] = node_class
             return node_class
 
-        def __check_dict_equiv(
-            dict1: dict[str, DataContainer], dict2: dict[str, DataContainer]
-        ) -> bool:
-            if not len(dict1) == len(dict2):
-                return False
-
-            for key, value in dict1.items():
-                if key not in dict2:
-                    return False
-                if not dict2[key].is_compatible(value):
-                    return False
-                if not value.is_compatible(dict2[key]):
-                    return False
-            return True
-
-        already_available_node_classes = Node.node_classes[node_class.__module__][
-            node_class.__name__
-        ]
-        candidates = list(
-            filter(
-                lambda node_class_candidate: __check_dict_equiv(
-                    node_class_candidate._node_config.inputs, node_config.inputs
-                )
-                and __check_dict_equiv(
-                    node_class_candidate._node_config.outputs,
-                    node_config.outputs,
-                ),
-                already_available_node_classes,
-            )
+        rclpy.logging.get_logger(node_class.__name__).error(
+            f"Node {node_class.__module__}.{node_class.__name__} was already registered,"
+            "we don't support multiple configs for the same class."
         )
-        if len(candidates) < 1:
-            Node.node_classes[node_class.__module__][node_class.__name__].append(
-                node_class
-            )
-        else:
-            rclpy.logging.get_logger(node_class.__name__).error(
-                "Node class is already registered with this config!"
-            )
         return node_class
 
     return inner_dec

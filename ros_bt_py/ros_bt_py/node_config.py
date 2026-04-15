@@ -216,12 +216,10 @@ class NodeConfig:
 
     def extend(self, other: "NodeConfig") -> Result[None, NodeConfigError]:
         """
-        Extend the input, output and option dicts with values from `other`.
+        Extend the input and output dicts with values from `other`.
 
-        :raises: KeyError, ValueError
-          If any of the dicts in `other` contains keys that already exist,
-          raise `KeyError`. If `max_children` has a value different from ours,
-          raise `ValueError`.
+        Returns an error if if the two configs are incompatible,
+        either due to duplicate io keys or mismatch in allowed number of child nodes.
         """
         if self.max_children != other.max_children:
             return Err(
