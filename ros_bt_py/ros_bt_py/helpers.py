@@ -40,6 +40,7 @@ import rosidl_runtime_py.utilities
 from ros_bt_py_interfaces.msg import NodeState
 
 
+# TODO Update this once StrEnum is available in all relevant versions (aka Humble is EOL)
 @typechecked
 # class BTNodeState(StrEnum):
 class BTNodeState(abc.ABC):

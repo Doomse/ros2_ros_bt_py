@@ -29,33 +29,16 @@ import inspect
 import array
 import uuid
 
-from ros_bt_py.vendor.result import Result, Ok, Err
+from ros_bt_py.vendor.result import Result, Ok, Err, do
 
-import rclpy.logging
 from rclpy import action
 from rclpy.node import Node, Publisher
 
 from ros_bt_py.exceptions import NodeConfigError
-from ros_bt_py_interfaces.msg import MessageChannel, MessageChannels
+from ros_bt_py_interfaces.msg import MessageChannel, MessageChannels, Wiring
 
 # Type alias for ros uuids
 ROS_UUID = str
-
-
-class LoggerLevel(object):
-    """Data class containing a logging level."""
-
-    def __init__(self, logger_level=rclpy.logging.LoggingSeverity.INFO):
-        """Initialize a new LoggerLevel class."""
-        self.logger_level = logger_level
-
-
-class EnumValue(object):
-    """Data class containing an enum value."""
-
-    def __init__(self, enum_value=""):
-        """Initialize a new EnumValue class."""
-        self.enum_value = enum_value
 
 
 def ros_to_uuid(ros_uuid_msg: ROS_UUID) -> Result[uuid.UUID, str]:
@@ -67,6 +50,14 @@ def ros_to_uuid(ros_uuid_msg: ROS_UUID) -> Result[uuid.UUID, str]:
 
 def uuid_to_ros(uuid: uuid.UUID) -> ROS_UUID:
     return str(uuid)
+
+
+def wiring_has_id(wiring: Wiring, node_id: uuid.UUID) -> bool:
+    return do(
+        Ok(source_id == node_id or target_id == node_id)
+        for source_id in ros_to_uuid(wiring.source.node_id)
+        for target_id in ros_to_uuid(wiring.target.node_id)
+    ).unwrap_or(False)
 
 
 def get_interface_name(msg_metaclass: type) -> str:
