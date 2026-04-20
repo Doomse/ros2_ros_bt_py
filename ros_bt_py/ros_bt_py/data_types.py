@@ -192,13 +192,20 @@ class DataContainer(Generic[ANY], abc.ABC):
         """
         Returns the own runtime type, which is used to determine whether two types
         have compatible values at runtime (is used to validate wirings between data types).
+
+        The returned runtime type usually does NOT hold the value of the original type
         """
-        run_type = deepcopy(self)
+        type_msg = self.serialize_type()
         # At runtime we care whether the value IS static or not,
         #   so we overwrite `allow_dynamic` and `allow_static` accordingly
-        run_type.allow_dynamic = not run_type.is_static
-        run_type.allow_static = run_type.is_static
-        return run_type
+        type_msg.allow_dynamic = not type_msg.is_static
+        type_msg.allow_static = type_msg.is_static
+        # This `unwrap_or` is just an additional safety net,
+        #   a sequence of serializing and deserializing should NEVER fail
+        return self.from_msg(type_msg).unwrap_or(self)
+
+    def has_value(self) -> bool:
+        return self._value is not None
 
     @abc.abstractmethod
     @typechecked
@@ -254,16 +261,6 @@ class DataContainer(Generic[ANY], abc.ABC):
     def is_updated(self) -> bool:
         return self._updated
 
-    def restore_updated(self) -> None:
-        """
-        Set the `updated` flag to `True` if the value is static
-        and `False` if the value is dynamic.
-        """
-        if self.is_static:
-            self._updated = True
-        else:
-            self._updated = False
-
     def flag_updated(self) -> None:
         """
         Set the `updated` flag to `True`
@@ -271,6 +268,9 @@ class DataContainer(Generic[ANY], abc.ABC):
         self._updated = True
 
     def reset_updated(self) -> None:
+        """
+        Set the `updated` flag to `False`
+        """
         self._updated = False
 
     @typechecked
@@ -1480,6 +1480,9 @@ class BuiltinOrRosType(TypeContainerMixin, DataContainer[dict | type]):
         )
         return type_msg
 
+    def has_value(self) -> bool:
+        return self._inner_type.has_value()
+
     def get_value(self) -> Result[dict | type, None]:
         return self._inner_type.get_value()
 
@@ -1497,8 +1500,8 @@ class BuiltinOrRosType(TypeContainerMixin, DataContainer[dict | type]):
     def is_updated(self) -> bool:
         return self._inner_type.is_updated()
 
-    def restore_updated(self) -> None:
-        return self._inner_type.restore_updated()
+    def flag_updated(self) -> None:
+        return self._inner_type.flag_updated()
 
     def reset_updated(self) -> None:
         return self._inner_type.reset_updated()
@@ -1623,6 +1626,11 @@ class ReferenceContainer(DataContainer[Any]):
             return self
         return self._inner_type.get_runtime_type()
 
+    def has_value(self) -> bool:
+        if self._inner_type is None:
+            return False
+        return self._inner_type.has_value()
+
     def set_value(self, value: Any) -> Result[None, str]:
         if self._inner_type is None:
             return Err("Can't set value on reference without target")
@@ -1643,15 +1651,15 @@ class ReferenceContainer(DataContainer[Any]):
             return False
         return self._inner_type.is_updated()
 
+    def flag_updated(self) -> None:
+        if self._inner_type is None:
+            return None
+        return self._inner_type.flag_updated()
+
     def reset_updated(self) -> None:
         if self._inner_type is None:
             return None
         return self._inner_type.reset_updated()
-
-    def restore_updated(self) -> None:
-        if self._inner_type is None:
-            return None
-        return self._inner_type.restore_updated()
 
     def _serialize_value(self, value: Any) -> Any:
         if self._inner_type is None:

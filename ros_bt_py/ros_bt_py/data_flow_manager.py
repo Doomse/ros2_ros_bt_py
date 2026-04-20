@@ -28,15 +28,15 @@
 from typing import TYPE_CHECKING, NamedTuple
 import uuid
 
-from ros_bt_py.ros_helpers import ros_to_uuid
-from ros_bt_py.vendor.result.result import Result, Ok, Err
+from ros_bt_py.vendor.result import Result, Ok, Err
 
 from ros_bt_py.data_types import DataContainer
+from ros_bt_py.ros_helpers import ros_to_uuid, uuid_to_ros
 
 if TYPE_CHECKING:
     from ros_bt_py.node import Node
 
-from ros_bt_py_interfaces.msg import Wiring
+from ros_bt_py_interfaces.msg import Wiring, WiringData
 
 
 Connection = NamedTuple(
@@ -180,3 +180,46 @@ class DataFlowManager:
             except KeyError:
                 continue
         return Ok(None)
+
+    def _get_wiring_data(
+        self,
+        source_id: uuid.UUID,
+        source_key: str,
+        target_id: uuid.UUID,
+        target_key: str,
+    ) -> WiringData:
+        wiring_data = WiringData()
+        wiring_data.wiring.source.node_id = uuid_to_ros(source_id)
+        wiring_data.wiring.source.data_key = source_key
+        wiring_data.wiring.target.node_id = uuid_to_ros(target_id)
+        wiring_data.wiring.target.data_key = target_key
+        try:
+            source_container = self.nodes[source_id].node_config.outputs[source_key]
+            target_container = self.nodes[target_id].node_config.inputs[target_key]
+            wiring_data.source_type = (
+                source_container.get_runtime_type().serialize_type()
+            )
+            wiring_data.target_type = (
+                target_container.get_runtime_type().serialize_type()
+            )
+            wiring_data.serialized_data = source_container.serialize_value()
+            wiring_data.is_current = (
+                wiring_data.serialized_data == target_container.serialize_value()
+            )
+        except KeyError:
+            pass
+        return wiring_data
+
+    def get_wiring_data(self) -> list[WiringData]:
+        wiring_list = []
+        for source_id, connections in self.connections.items():
+            for connection in connections:
+                wiring_list.append(
+                    self._get_wiring_data(
+                        source_id,
+                        connection.source_key,
+                        connection.target_id,
+                        connection.target_key,
+                    )
+                )
+        return wiring_list

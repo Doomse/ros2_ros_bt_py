@@ -346,7 +346,7 @@ class Node(abc.ABC):
             # Reset input/output reset state and set dynamic values to None
             for container in self.node_config.inputs.values():
                 container.reset_value()
-                container.restore_updated()
+                container.flag_updated()
 
             for container in self.node_config.outputs.values():
                 container.reset_value()
@@ -396,8 +396,7 @@ class Node(abc.ABC):
 
             # Check if any inputs are unset, if so return an error
             for key, container in self.node_config.inputs.items():
-                # We access _value directly to avoid the copy operation in get_value
-                if container._value is None:
+                if not container.has_value():
                     self.state = BTNodeState.BROKEN
                     return Err(BehaviorTreeException(f"Input for key {key} is unset."))
 

@@ -1435,7 +1435,5 @@ class TreeExecManager:
         return self._tree_state
 
     def data_to_msg(self) -> TreeData:
-        self._tree_data.wiring_data = []
-        # for node in self.nodes.values():
-        # self._tree_data.wiring_data.extend(node.wire_data_msg_list())
+        self._tree_data.wiring_data = self.data_flow_manager.get_wiring_data()
         return self._tree_data
