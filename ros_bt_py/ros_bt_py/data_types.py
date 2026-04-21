@@ -226,7 +226,8 @@ class DataContainer(Generic[ANY], abc.ABC):
         if isinstance(has_changed, Iterable):
             has_changed = any(has_changed)
         self._updated = has_changed
-        self._value = value
+        if has_changed:
+            self._value = deepcopy(value)
         return Ok(None)
 
     @typechecked
@@ -236,7 +237,7 @@ class DataContainer(Generic[ANY], abc.ABC):
         """
         if self._value is None:
             return Err(None)
-        return Ok(self._value)
+        return Ok(deepcopy(self._value))
 
     @typechecked
     def get_value_as(self, type_: type[ANY]) -> Result[ANY, Any]:
@@ -406,9 +407,6 @@ class BuiltinContainer(DataContainer[BUILTIN]):
         if not isinstance(value, self._type):
             return Err(f"Given value {value} isn't of type {self._type}")
         return super().set_value(value)
-
-    def get_value(self) -> Result[BUILTIN, None]:
-        return super().get_value()
 
 
 @register_io_type
@@ -784,10 +782,7 @@ class IterableContainer(BuiltinContainer[ITER]):
             return Err(
                 f"Value {value} has fewer items than the limit of {self.max_length}"
             )
-        return super().set_value(deepcopy(value))
-
-    def get_value(self) -> Result[ITER, None]:
-        return super().get_value().and_then(lambda v: Ok(deepcopy(v)))
+        return super().set_value(value)
 
 
 @register_io_type
@@ -1249,10 +1244,7 @@ class RosMessageType(RosContainer):
             return Err(
                 f"Value {value} is not the proper ROS message {self.message_type}"
             )
-        return super().set_value(deepcopy(value))
-
-    def get_value(self) -> Result[Any, None]:
-        return super().get_value().and_then(lambda v: Ok(deepcopy(v)))
+        return super().set_value(value)
 
     def _serialize_value(self, value: Any) -> dict[str, Any]:
         match self.get_element_fields():
