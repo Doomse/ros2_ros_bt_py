@@ -41,7 +41,7 @@ import uuid
 from typing import (
     Any,
     Callable,
-    Generator,
+    Iterator,
     Tuple,
     Optional,
     TypeVar,
@@ -1012,7 +1012,7 @@ class Node(abc.ABC):
         return Ok(node_instance)
 
     @typechecked
-    def get_children_recursive(self) -> Generator["Node", None, None]:
+    def get_children_recursive(self) -> Iterator["Node"]:
         """Return all nodes that are below this node in the parent-child hirachy recursively."""
         yield self
         for child in self.children:

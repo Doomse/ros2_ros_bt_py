@@ -39,7 +39,7 @@ from ros_bt_py.vendor.result import Result, Ok, Err, do
 @define_bt_node(
     NodeConfig(
         version="0.1.0",
-        inputs={"name": StringType()},
+        inputs={"name": StringType(is_static=False)},
         outputs={},
         max_children=None,
     )

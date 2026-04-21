@@ -39,7 +39,7 @@ from ros_bt_py.node_config import NodeConfig
         version="0.1.0",
         inputs={
             "passthrough_type": BuiltinOrRosType(),
-            "in": ReferenceType("passthrough_type"),
+            "in": ReferenceType("passthrough_type", is_static=False),
         },
         outputs={"out": ReferenceType("passthrough_type")},
         max_children=0,

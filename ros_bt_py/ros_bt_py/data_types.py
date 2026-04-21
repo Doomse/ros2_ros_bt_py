@@ -1227,6 +1227,20 @@ class RosMessageType(RosContainer):
         self._value = message_type()
         super().__init__(*args, **kwargs)
 
+    @classmethod
+    def _dict_from_msg(cls, msg: NodeDataType) -> Result[dict, str]:
+        try:
+            message_type = rosidl_runtime_py.utilities.get_interface(msg.ros_msg_type)
+            match super()._dict_from_msg(msg):
+                case Err(e):
+                    return Err(e)
+                case Ok(d):
+                    config = d
+            config["message_type"] = message_type
+            return Ok(config)
+        except AttributeError:
+            return Err(f"Cannot find message type '{msg.ros_msg_type}'")
+
     def is_compatible(self, other: DataContainer) -> TypeGuard[Self]:
         if not super().is_compatible(other):
             return False

@@ -42,11 +42,13 @@ from ros_bt_py.node_config import NodeConfig
 from ros_bt_py.helpers import BTNodeState
 from ros_bt_py.ros_helpers import get_message_constant_fields
 
+from ros_bt_py_interfaces.msg import NodeState
+
 
 @define_bt_node(
     NodeConfig(
         version="0.1.0",
-        inputs={"ros_message_type": RosComponentType()},
+        inputs={"ros_message_type": RosComponentType(value=NodeState)},
         outputs={},
         max_children=None,
     )
@@ -90,6 +92,7 @@ class EnumSwitch(FlowControl):
                 return Err(NodeConfigError(e))
             case Ok(c):
                 case_type = c
+        case_type.is_static = False
 
         return Ok({"case": case_type})
 

@@ -57,8 +57,8 @@ from ros_bt_py.node_config import NodeConfig
     NodeConfig(
         version="0.1.0",
         inputs={
-            "topic_name": RosTopicName(),
-            "topic_type": RosTopicType(),
+            "topic_name": RosTopicName(interface_id=1),
+            "topic_type": RosTopicType(interface_id=1),
             "reliable": BoolType(),
             "transient_local": BoolType(),
             "depth": IntType(min_value=0),
@@ -248,8 +248,8 @@ class TopicSubscriber(Leaf):
     NodeConfig(
         version="0.1.0",
         inputs={
-            "topic_name": RosTopicName(),
-            "topic_type": RosTopicType(),
+            "topic_name": RosTopicName(interface_id=1),
+            "topic_type": RosTopicType(interface_id=1),
             "reliable": BoolType(),
             "transient_local": BoolType(),
             "depth": IntType(min_value=0),
@@ -451,8 +451,8 @@ class TopicMemorySubscriber(Leaf):
     NodeConfig(
         version="1.0.0",
         inputs={
-            "topic_name": RosTopicName(),
-            "topic_type": RosTopicType(),
+            "topic_name": RosTopicName(interface_id=1),
+            "topic_type": RosTopicType(interface_id=1),
             "reliable": BoolType(),
             "transient_local": BoolType(),
             "depth": IntType(min_value=0),
