@@ -69,6 +69,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/UtilityBounds.msg"
   "msg/MessageChannel.msg"
   "msg/MessageChannels.msg"
+  "msg/MessageType.msg"
   "msg/MessageTypes.msg"
   "msg/Package.msg"
   "msg/Packages.msg"
