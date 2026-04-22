@@ -59,6 +59,7 @@ class DataContainer(Generic[ANY], abc.ABC):
 
     # This type_identifier has to be assigned a value in subclass definitions
     #   and should only be a class attribute.
+    """The type identifier maps data types to :obj:`NodeDataType` messages"""
     type_identifier: int
 
     allow_dynamic: bool
@@ -74,7 +75,7 @@ class DataContainer(Generic[ANY], abc.ABC):
         allow_static: bool = True,
         is_static: bool | None = None,
         value: Optional[ANY] = None,
-    ) -> None:
+    ):
         # This method calls `set_value` with the given value,
         #   so subclasses need to ensure that method is functional
         #   before calling `super().__init__`.
@@ -135,11 +136,11 @@ class DataContainer(Generic[ANY], abc.ABC):
     def from_msg(cls, msg: NodeDataType) -> Result[Self, str]:
         """
         Factory function that returns an instance of this data type,
-        based on the given `NodeDataType` ROS message.
+        based on the given :obj:`NodeDataType` ROS message.
 
         This only verifies that the type identifier matches and does the final initialization step,
         the parameters for constructing the data type are handled by
-        the helper function `self._dict_from_msg`.
+        the helper function :obj:`self._dict_from_msg`.
         """
         if not hasattr(cls, "type_identifier"):
             raise NotImplementedError("Called on abstract base class")
@@ -157,11 +158,13 @@ class DataContainer(Generic[ANY], abc.ABC):
     def is_compatible(self, other: "DataContainer") -> TypeGuard[Self]:
         """
         Check if the given container is compatible with this one,
-            meaning that its constraints are at least as narrow as the ones in `self`.
+        meaning that its constraints are at least as narrow as the ones in :obj:`self`.
+
         This is used to compare configs given on specific nodes
-            with the baseline given on the class config.
-        This can also serve as a type guard for `other`,
-            because the checks performed are more strict than simple type equality.
+        with the baseline given on the class config.
+
+        This can also serve as a type guard for :obj:`other`,
+        because the checks performed are more strict than simple type equality.
 
         Subclasses should extend this with additional checks where applicable.
         """
@@ -177,7 +180,7 @@ class DataContainer(Generic[ANY], abc.ABC):
     @abc.abstractmethod
     def serialize_type(self) -> NodeDataType:
         """
-        Returns a serialized version of this data type as a `NodeDataType` ROS message.
+        Returns a serialized version of this data type as a :obj:`NodeDataType` ROS message.
         Subclasses should extend this if there are additional parameters to be added.
         """
         type_msg = NodeDataType(
@@ -211,11 +214,11 @@ class DataContainer(Generic[ANY], abc.ABC):
     @typechecked
     def set_value(self, value: ANY) -> Result[None, str]:
         """
-        Sets the value of this data type, as well as the `updated` flag
+        Sets the value of this data type, as well as the :obj:`updated` flag
         if the value differs from the previous one.
 
         Subclasses should validate and clean incoming values
-            before calling `super().set_value` to assign them.
+        before calling :obj:`super().set_value` to assign them.
         """
         if self.is_static and self._updated:
             return Err("Static value was already assigned")
@@ -233,7 +236,8 @@ class DataContainer(Generic[ANY], abc.ABC):
     @typechecked
     def get_value(self) -> Result[ANY, None]:
         """
-        Returns an empty `Err` if the value is `None`.
+        Returns an :obj:`Ok` holding the value or
+        an empty :obj:`Err` if the value is :obj:`None`.
         """
         if self._value is None:
             return Err(None)
@@ -242,9 +246,9 @@ class DataContainer(Generic[ANY], abc.ABC):
     @typechecked
     def get_value_as(self, type_: type[ANY]) -> Result[ANY, Any]:
         """
-        Coerces the stored value to the given `type_` if possible.
-        Returns `Ok` if the type matches and `Err` if it doesn't,
-        but both results wrap the same value
+        Coerces the stored value to the given :obj:`type_` if possible.
+        Returns :obj:`Ok` if the type matches and :obj:`Err` if it doesn't,
+        but both results wrap the same value (or :obj:`None` in case of :obj:`Err`)
         """
         match self.get_value():
             case Err(None):
@@ -262,15 +266,15 @@ class DataContainer(Generic[ANY], abc.ABC):
     def is_updated(self) -> bool:
         return self._updated
 
-    def flag_updated(self) -> None:
+    def flag_updated(self):
         """
-        Set the `updated` flag to `True`
+        Set the :obj:`updated` flag to :obj:`True`
         """
         self._updated = True
 
-    def reset_updated(self) -> None:
+    def reset_updated(self):
         """
-        Set the `updated` flag to `False`
+        Set the :obj:`updated` flag to :obj:`False`
         """
         self._updated = False
 
@@ -278,8 +282,8 @@ class DataContainer(Generic[ANY], abc.ABC):
     def serialize_value(self) -> str:
         """
         Checks whether this type has a set value. If not, just return an empty string.
-        Calls the `self._serialize_value` helper function to get a json serializable
-        representation of the value, then pass that to `json.dumps`
+        Calls the :obj:`self._serialize_value` helper function to get a json serializable
+        representation of the value, then pass that to :obj:`json.dumps`
         """
         match self.get_value():
             case Err(None):
@@ -297,16 +301,16 @@ class DataContainer(Generic[ANY], abc.ABC):
         """
         Subclasses overwrite this to include custom serialization steps when necessary.
         The output should be json-serializeable, but not serialized yet.
-        The wrapping method calls `json.dumps` as a final step.
+        The wrapping method calls :obj:`json.dumps` as a final step.
         """
         return value
 
     @typechecked
     def deserialize_value(self, ser_value: str) -> Result[None, str]:
         """
-        First pass the given serialized value to `json.loads`,
-        then to the `self._deserialize_value` helper function,
-        and finally to `self.set_value`.
+        First pass the given serialized value to :obj:`json.loads`,
+        then to the :obj:`self._deserialize_value` helper function,
+        and finally to :obj:`self.set_value`.
         """
         value = json.loads(ser_value)
         return self._deserialize_value(value).and_then(lambda val: self.set_value(val))
@@ -314,9 +318,8 @@ class DataContainer(Generic[ANY], abc.ABC):
     @typechecked
     def _deserialize_value(self, value: Any) -> Result[ANY, str]:
         """
-        Subclasses overwrite this to include custom serialization steps when necessary.
-        The output should be json-serializeable, but not serialized yet.
-        The wrapping method calls `json.dumps` as a final step.
+        Subclasses overwrite this to include custom deserialization steps when necessary.
+        The input has already been passed through :obj:`json.loads` by the wrapping function.
         """
         return Ok(value)
 
@@ -333,7 +336,8 @@ CONTAINER = TypeVar("CONTAINER", bound=DataContainer)
 def register_io_type(cls: type[CONTAINER]) -> type[CONTAINER]:
     """
     This decorator is used to register concrete data types,
-    which allows them to be found when parsing a `NodeDataType` message with `get_iotype_for_msg`.
+    which allows them to be found when parsing a :obj:`NodeDataType`
+    message with :obj:`get_iotype_for_msg`.
     """
     if not hasattr(cls, "type_identifier"):
         raise RuntimeError("Registered IO types require a type identifier")
@@ -344,8 +348,8 @@ def register_io_type(cls: type[CONTAINER]) -> type[CONTAINER]:
 @typechecked
 def get_iotype_for_msg(msg: NodeDataType) -> Result[DataContainer, str]:
     """
-    Parses a `NodeDataType` message to a data type class
-    that was registered with `register_io_type`.
+    Parses a :obj:`NodeDataType` message to a data type class
+    that was registered with :obj:`register_io_type`.
     """
     for io_type in CONCRETE_IO_TYPES:
         match io_type.from_msg(msg):
@@ -363,7 +367,7 @@ class TypeContainerMixin(DataContainer):
     """
     Mixin class to signal that a data type is a valid target for reference types.
 
-    This forces the values to always be static and defines the `get_value_field` interface.
+    This forces the values to always be static and defines the :obj:`get_value_field` interface.
     """
 
     # Update the defaults and verify that a type container doesn't allow dynamic values
@@ -662,7 +666,6 @@ class BytesType(StringContainer[bytes]):
     _value = b"\x00"
 
     max_length = 1
-    strict_length = True
 
     @typechecked
     def _serialize_value(self, value: bytes) -> str:
@@ -691,9 +694,6 @@ class IterableContainer(BuiltinContainer[ITER]):
     Iterables can also constrained by a maximum length,
     with a boolean flag to make that limit 'strict',
     which means the iterable has to match that maximum length exactly.
-
-    Since iterables are usually mutable, this container applies `deepcopy`
-    operations on every `get_value` and `set_value` to avoid accidental modification.
     """
 
     _element_type: DataContainer = IntType()
@@ -828,7 +828,7 @@ class ListType(IterableContainer[list[Any]]):
 class DictType(IterableContainer[dict[str, Any]]):
     """
     This type holds a dict of values.
-    The keys of a dict will always be converted by using `str(...)`.
+    The keys of a dict will always be coerced by using :obj:`str(...)`.
     """
 
     type_identifier = NodeDataType.DICT_TYPE
@@ -909,7 +909,8 @@ BUILTIN_TYPE_MAP: dict[type, dict] = {
 @typechecked
 def get_iotype_for_dict(value_dict: dict) -> Result[DataContainer, str]:
     """
-    Note that this only constructs the data type from a dictionary of type parameters.
+    Constructs the data type from a dictionary of type parameters.
+    See also :obj:`BUILTIN_TYPE_MAP`
     """
     try:
         if value_dict[IDENTIFIER_KEY] == NodeDataType.ROS_INTERFACE_VALUE:
@@ -1019,8 +1020,8 @@ def serialize_type_map(keys: list[type]) -> list[str]:
 @register_io_type
 class BuiltinType(TypeContainerMixin, BuiltinContainer[dict]):
     """
-    This holds a type value from the `BUILTIN_TYPE_MAP` keys,
-    which correspond to data types inheriting from `BuiltinContainer`.
+    This holds a type value from the :obj:`BUILTIN_TYPE_MAP` keys,
+    which correspond to data types inheriting from :obj:`BuiltinContainer`.
 
     The list of valid types can optionally be constrained by supplying a list of builtin types.
     """
@@ -1165,7 +1166,7 @@ class RosContainer(DataContainer):
 class RosNameContainer(RosContainer, BuiltinContainer[str]):
     """
     Common base class for ROS interface names.
-    Also inherits from `BuiltinContainer` to include all necessary functionality.
+    Also inherits from :obj:`BuiltinContainer` to include all necessary functionality.
     """
 
     type_identifier = NodeDataType.ROS_INTERFACE_NAME
@@ -1213,7 +1214,7 @@ class RosMessage(Protocol):
 @register_io_type
 class RosMessageType(RosContainer):
     """
-    Holds the values for a given ROS message, which has to be specified on `init`.
+    Holds the values for a given ROS message, which has to be specified on :obj:`init`.
     """
 
     type_identifier = NodeDataType.ROS_INTERFACE_VALUE
@@ -1313,7 +1314,7 @@ class RosTypeContainer(TypeContainerMixin, RosContainer):
     """
     Common base class for all ROS message types.
 
-    Defines an abstract `self._validate` method which checks
+    Defines an abstract :obj:`self._validate` method which checks
     if the given type is actually a ROS message.
     """
 
@@ -1374,7 +1375,8 @@ class RosTopicType(RosTypeContainer):
     """
     This type holds message types of ROS topics.
 
-    Note that this validation also accepts component messages like `_Request` or `_Goal`,
+    Note that this validation also accepts component messages
+    like :obj:`Service_Request` or :obj:`Action_Goal`,
     since they're fully fledged message classes.
     The interface type just indicates that we are not looking for those.
     """
@@ -1423,9 +1425,9 @@ class RosComponentType(RosTypeContainer):
     """
     This type holds component message types.
 
-    This behaves similar to `RosTopicType`,
+    This behaves similar to :obj:`RosTopicType`,
     except that the interface type indicates that we also want to allow
-    interface components like `Service_Request` or `Action_Goal`.
+    interface components like :obj:`Service_Request` or :obj:`Action_Goal`.
     """
 
     interface_kind = NodeDataType.ROS_COMPONENT
@@ -1440,8 +1442,11 @@ class RosComponentType(RosTypeContainer):
 @register_io_type
 class BuiltinOrRosType(TypeContainerMixin, DataContainer[dict | type]):
     """
-    This acts as a either a `BuiltinType` or a `RosTopicType`,
-    depending on whether `ros_interface_kind` is set to `ROS_UNDEFINED` or `ROS_TOPIC`.
+    This acts as a either a :obj:`BuiltinType` or a :obj:`RosTopicType`.
+
+    For the corresponding :obj:`NodeDataType` messages, this is decided depending on
+    whether :obj:`ros_interface_kind` is set to :obj:`ROS_UNDEFINED` or :obj:`ROS_TOPIC`.
+
     Note that this doesn't support the restrictions that can be placed on `BuiltinType`.
     """
 
@@ -1537,7 +1542,7 @@ class ReferenceContainer(DataContainer[Any]):
     """
     Common base class for all reference types.
     Reference types imitate other data types based on the referenced type value.
-    The data type being imitated is stored as `self._inner_type`.
+    The data type being imitated is stored as :obj:`self._inner_type`.
 
     Defines additional functions necessary to fully initialize these reference types.
     """
@@ -1607,7 +1612,7 @@ class ReferenceContainer(DataContainer[Any]):
     def is_compatible(self, other: DataContainer) -> TypeGuard[Self]:
         """
         Compatibility here is only evaluated within exact matching references.
-        See also `self.get_runtime_type`
+        See also :obj:`self.get_runtime_type`
         """
         if not super().is_compatible(other):
             return False
@@ -1691,7 +1696,7 @@ class IterableReferenceContainer(ReferenceContainer):
     """
     A container for iterable references.
 
-    Works similar to the standard `IterableContainer`,
+    Works similar to the standard :obj:`IterableContainer`,
     with the difference that the element type is determined by the referenced type value.
     """
 
@@ -1725,7 +1730,7 @@ class IterableReferenceContainer(ReferenceContainer):
 class ReferenceListType(ReferenceContainer):
     """
     A reference type for lists.
-    Works like the basic `ListType`, with the element type being set by reference
+    Works like the basic :obj:`ListType`, with the element type being set by reference
     """
 
     type_identifier = NodeDataType.REFERENCE_LIST_TYPE
@@ -1745,7 +1750,7 @@ class ReferenceListType(ReferenceContainer):
 class ReferenceDictType(ReferenceContainer):
     """
     A reference type for dicts.
-    Works like the basic `DictType`, with the element type being set by reference
+    Works like the basic :obj:`DictType`, with the element type being set by reference
     """
 
     type_identifier = NodeDataType.REFERENCE_DICT_TYPE
@@ -1765,7 +1770,7 @@ class ReferenceDictType(ReferenceContainer):
 def get_message_field_io_type(field_type: str) -> Result[DataContainer, str]:
     """
     Constructs a data type based on the field type of a ROS message field,
-    as given by the `get_fields_and_field_types()` function.
+    as given by the :obj:`get_fields_and_field_types()` function.
     """
     # Checks if the type matches a sequence definition and extracts the element-type and bounds
     match_sequence = re.match(r"sequence<([\w\/<>]+)(?:, (\d+))?>", field_type)
