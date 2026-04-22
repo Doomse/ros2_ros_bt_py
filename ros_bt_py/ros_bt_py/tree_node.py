@@ -71,8 +71,6 @@ from ros_bt_py_interfaces.srv import (
     ClearTree,
     MorphNode,
     SaveTree,
-    GetMessageFields,
-    GetMessageConstantFields,
     GetPackageStructure,
     GenerateSubtree,
     ReloadTree,
@@ -231,18 +229,6 @@ class TreeNode(Node):
 
         self.package_manager_service_callback_group = ReentrantCallbackGroup()
 
-        self.get_message_fields_service = self.create_service(
-            GetMessageFields,
-            "~/get_message_fields",
-            callback=self.package_manager.get_message_fields,
-            callback_group=self.package_manager_service_callback_group,
-        )
-        self.get_message_constant_fields_service = self.create_service(
-            GetMessageConstantFields,
-            "~/get_message_constant_fields",
-            callback=self.package_manager.get_message_constant_fields_handler,
-            callback_group=self.package_manager_service_callback_group,
-        )
         self.get_package_structure_service = self.create_service(
             GetPackageStructure,
             "~/get_package_structure",

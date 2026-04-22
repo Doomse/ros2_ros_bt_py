@@ -26,7 +26,7 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
-from ros_bt_py.vendor.result import Result, Ok, Err, do
+from ros_bt_py.vendor.result import Result, Ok, Err
 
 from ros_bt_py.data_types import (
     DataContainer,
@@ -38,7 +38,6 @@ from ros_bt_py.node import Leaf, define_bt_node
 from ros_bt_py.node_config import NodeConfig
 from ros_bt_py.exceptions import BehaviorTreeException, NodeConfigError
 from ros_bt_py.helpers import BTNodeState
-from ros_bt_py.ros_helpers import get_message_field_type
 
 
 @define_bt_node(

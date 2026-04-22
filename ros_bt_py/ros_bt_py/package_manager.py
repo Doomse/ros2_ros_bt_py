@@ -32,7 +32,7 @@ from importlib import metadata
 import ament_index_python
 from ament_index_python import PackageNotFoundError
 
-from typing import Any, Optional, List
+from typing import Optional, List
 from typeguard import typechecked
 
 import rclpy
@@ -46,8 +46,7 @@ from ros_bt_py.vendor.result import Ok, Err
 
 from ros_bt_py.data_types import RosMessageType
 from ros_bt_py.node import Node, load_node_module, increment_name
-from ros_bt_py.helpers import build_message_field_dicts
-from ros_bt_py.ros_helpers import get_message_constant_fields, get_interface_name
+from ros_bt_py.ros_helpers import get_interface_name
 
 from ros_bt_py_interfaces.msg import (
     DocumentedNode,
@@ -58,8 +57,6 @@ from ros_bt_py_interfaces.msg import (
     Packages,
 )
 from ros_bt_py_interfaces.srv import (
-    GetMessageFields,
-    GetMessageConstantFields,
     SaveTree,
     GetPackageStructure,
     GetFolderStructure,
@@ -240,62 +237,6 @@ class PackageManager(object):
                 message_types.actions.append(package + "/" + action)
 
         self.message_list_pub.publish(message_types)
-
-    def get_message_fields(
-        self, request: GetMessageFields.Request, response: GetMessageFields.Response
-    ):
-        """Return the fields and field types of the provided message type."""
-        try:
-            message_class = rosidl_runtime_py.utilities.get_message(
-                request.message_type
-            )
-
-            field_values, field_types = build_message_field_dicts(message_class())
-
-            # Ros interfaces sometimes introduce numpy types or bytes.
-            # Try their standard normalization methods.
-            # If those fail, just cast to string
-            def coerce_types(obj: Any):
-                if isinstance(obj, bytes):
-                    return list(obj)
-                try:
-                    return obj.tolist()
-                except AttributeError:
-                    LOGGER.warn(
-                        f"Object of type {obj.__class__.__name__} can't be serialized properly"
-                    )
-                    return str(obj)
-
-            response.fields = json.dumps(field_values, default=coerce_types)
-            response.field_types = json.dumps(field_types, default=coerce_types)
-
-            response.success = True
-        except Exception as e:
-            response.success = False
-            response.error_message = (
-                f"Could not get message fields for {request.message_type}: {e}"
-            )
-        return response
-
-    # TODO Maybe instead of introducing a new message type,
-    # constant_fields should also be returned as a dict?
-    def get_message_constant_fields_handler(
-        self,
-        request: GetMessageConstantFields.Request,
-        response: GetMessageConstantFields.Response,
-    ):
-        try:
-            message_class = rosidl_runtime_py.utilities.get_message(
-                request.message_type
-            )
-            response.field_names = get_message_constant_fields(message_class)
-            response.success = True
-        except Exception as e:
-            response.success = False
-            response.error_message = (
-                f"Could not get message fields for {request.message_type}: {e}"
-            )
-        return response
 
     def publish_packages_list(self):
         if self.packages_list_pub is None:

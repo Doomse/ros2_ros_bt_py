@@ -108,11 +108,3 @@ def publish_message_channels(node: Node, publisher: Publisher):
     for name, [interface, *_] in action.get_action_names_and_types(node):
         msg.actions.append(MessageChannel(name=name, type=interface))
     publisher.publish(msg)
-
-
-def get_message_field_type(msg, field) -> type:
-    """Return type of a field in a ros msg but check for arrays to be converted into lists."""
-    if isinstance((getattr(msg, field)), array.array):
-        return list
-    else:
-        return type(getattr(msg, field))
