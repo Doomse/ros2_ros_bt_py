@@ -879,7 +879,7 @@ class TreeExecManager:
                     updated_wirings.append(wiring)
 
         self.name = tree.name
-
+        self._tree_structure.path = tree.path
         self.tick_frequency_hz = tree.tick_frequency_hz
 
         # These reassignments makes the typing happy,

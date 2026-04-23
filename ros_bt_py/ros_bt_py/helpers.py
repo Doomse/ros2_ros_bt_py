@@ -94,6 +94,7 @@ def float_limits_dict(name: str) -> dict[str, float]:
 
 
 # Max uint64 value that exactly matches a float64 value
+# It is used to prevent precision loss between integers and js numbers
 INT_FLOAT_MAX = 2**64 - 1616
 
 

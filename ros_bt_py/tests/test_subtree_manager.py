@@ -148,12 +148,10 @@ class TestSubtreeManager:
                         wiring=Wiring(
                             source=NodeDataLocation(
                                 node_id=uuid_to_ros(uuid.UUID(int=100)),
-                                data_kind=NodeDataLocation.OUTPUT_DATA,
                                 data_key="output1",
                             ),
                             target=NodeDataLocation(
                                 node_id=uuid_to_ros(uuid.UUID(int=101)),
-                                data_kind=NodeDataLocation.INPUT_DATA,
                                 data_key="input1",
                             ),
                         ),
@@ -170,12 +168,10 @@ class TestSubtreeManager:
                         wiring=Wiring(
                             source=NodeDataLocation(
                                 node_id=uuid_to_ros(uuid.UUID(int=110)),
-                                data_kind=NodeDataLocation.OUTPUT_DATA,
                                 data_key="output1",
                             ),
                             target=NodeDataLocation(
                                 node_id=uuid_to_ros(uuid.UUID(int=111)),
-                                data_kind=NodeDataLocation.INPUT_DATA,
                                 data_key="input1",
                             ),
                         ),

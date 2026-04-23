@@ -75,10 +75,10 @@ def make_filepath_unique(filepath):
     return name + extension
 
 
-def data_type_to_message_type(message_type: type) -> MessageType:
+def to_message_type(message: type) -> MessageType:
     message_type_msg = MessageType()
-    message_type_msg.name = get_interface_name(message_type)
-    container = RosMessageType(message_type)
+    message_type_msg.name = get_interface_name(message)
+    container = RosMessageType(message)
     message_type_msg.type = container.serialize_type()
     match container.get_element_fields():
         case Err(e):
@@ -224,7 +224,7 @@ class PackageManager(object):
                 message_type = rosidl_runtime_py.utilities.get_message(
                     package + "/" + message
                 )
-                message_types.topics.append(data_type_to_message_type(message_type))
+                message_types.topics.append(to_message_type(message_type))
         for package, package_services in rosidl_runtime_py.get_service_interfaces(
             packages
         ).items():
