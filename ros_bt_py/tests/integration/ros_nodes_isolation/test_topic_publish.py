@@ -30,20 +30,14 @@ import pytest
 import rclpy
 import time
 
-from rclpy.qos import (
-    QoSDurabilityPolicy,
-    QoSProfile,
-    QoSReliabilityPolicy,
-)
-
 from example_interfaces.msg import String
 
 from ros_bt_py_interfaces.srv import ControlTreeExecution
 
-from tests.integration.conftest import TreeControlNode, launch_description
+from tests.integration.conftest import TreeControlNode, standard_tree_node
 
 
-@pytest.mark.launch(fixture=launch_description)
+@pytest.mark.launch(fixture=standard_tree_node)
 def test_topic_publisher_node(tree_control_node: TreeControlNode):
     load_result = tree_control_node.load_tree(
         "trees/ros_nodes_isolation/topic_publish.yaml"
@@ -57,15 +51,11 @@ def test_topic_publisher_node(tree_control_node: TreeControlNode):
         if msg.data == "foobarbaz":
             has_received_msg = True
 
-    msg_subscriber = tree_control_node.create_subscription(
+    _ = tree_control_node.create_subscription(
         String,
         "/foo",
         _recieve_msg,
-        QoSProfile(
-            reliability=QoSReliabilityPolicy.RELIABLE,
-            durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
-            depth=1,
-        ),
+        1,
     )
 
     has_received_msg = False
@@ -74,11 +64,11 @@ def test_topic_publisher_node(tree_control_node: TreeControlNode):
 
     # We expect a message after the first tick
     start_time = time.time()
-    while start_time + 30 > time.time():
+    while start_time + 10 > time.time():
         if has_received_msg:
             break
         assert rclpy.ok()
-        rclpy.spin_once(tree_control_node, timeout_sec=5)
+        rclpy.spin_once(tree_control_node, timeout_sec=2)
     assert has_received_msg
 
     has_received_msg = False
@@ -87,11 +77,11 @@ def test_topic_publisher_node(tree_control_node: TreeControlNode):
 
     # We expect NO message after the second tick
     start_time = time.time()
-    while start_time + 30 > time.time():
+    while start_time + 10 > time.time():
         if has_received_msg:
             break
         assert rclpy.ok()
-        rclpy.spin_once(tree_control_node, timeout_sec=5)
+        rclpy.spin_once(tree_control_node, timeout_sec=2)
     assert not has_received_msg
 
     has_received_msg = False
@@ -102,11 +92,9 @@ def test_topic_publisher_node(tree_control_node: TreeControlNode):
 
     # We expect a message after a reset
     start_time = time.time()
-    while start_time + 30 > time.time():
+    while start_time + 10 > time.time():
         if has_received_msg:
             break
         assert rclpy.ok()
-        rclpy.spin_once(tree_control_node, timeout_sec=5)
+        rclpy.spin_once(tree_control_node, timeout_sec=2)
     assert has_received_msg
-
-    tree_control_node.destroy_subscription(msg_subscriber)

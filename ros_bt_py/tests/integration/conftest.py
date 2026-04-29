@@ -63,10 +63,11 @@ from ros_bt_py_interfaces.srv import (
     LoadTreeFromPath,
 )
 
+from rosgraph_msgs.msg import Clock
+
 
 # This function specifies the processes to be run for our test.
-@launch_pytest.fixture
-def launch_description():
+def tree_launch_description(use_sim_time: bool):
     with contextlib.ExitStack() as stack:
         if (
             "ROS_DOMAIN_ID" not in os.environ
@@ -78,7 +79,10 @@ def launch_description():
         tree_node = launch_ros.actions.Node(
             package="ros_bt_py",
             executable="tree_node",
-            additional_env={"PYTHONUNBUFFERED": "1"},
+            parameters=[{"use_sim_time": use_sim_time}],
+            additional_env={
+                "PYTHONUNBUFFERED": "1"
+            },  # Necessary for the ReadyListener below
         )
         yield launch.LaunchDescription(
             [
@@ -94,7 +98,29 @@ def launch_description():
         )
 
 
+@launch_pytest.fixture
+def standard_tree_node():
+    yield from tree_launch_description(use_sim_time=False)
+
+
+@launch_pytest.fixture
+def sim_time_tree_node():
+    yield from tree_launch_description(use_sim_time=True)
+
+
 class TreeControlNode(Node):
+    """
+    Provides functions to easily interact with the BT under testing.
+
+    Most of these functions use return values of type ``Result``.
+    Make sure to check (assert) them in a way that allows the error message
+    to be picked up, like ``assert result.is_ok()`` or
+    ``match result:
+        case Err(e):
+            assert False, e
+        case Ok(v):
+            ...``
+    """
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__("tree_control_node", *args, **kwargs)
@@ -202,3 +228,28 @@ def tree_control_node():
     yield node
     node.destroy_node()
     rclpy.shutdown()
+
+
+class TimeControlNode(Node):
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__("time_control_node", *args, **kwargs)
+
+        self.clock_publisher = self.create_publisher(
+            Clock,
+            "/clock",
+            1,
+        )
+
+    def set_time(self, seconds: int):
+        clock_msg = Clock()
+        clock_msg.clock.sec = seconds
+        self.clock_publisher.publish(clock_msg)
+
+
+@pytest.fixture
+def time_control_node():
+    # No rclpy init, we assume a tree_control_node to always be used
+    node = TimeControlNode()
+    yield node
+    node.destroy_node()
