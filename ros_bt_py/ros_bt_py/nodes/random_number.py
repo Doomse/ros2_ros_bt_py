@@ -38,7 +38,6 @@ from ros_bt_py.node_config import NodeConfig
 
 @define_bt_node(
     NodeConfig(
-        version="0.1.0",
         inputs={"min": IntType(), "max": IntType()},
         outputs={"random_number": IntType()},
         max_children=0,

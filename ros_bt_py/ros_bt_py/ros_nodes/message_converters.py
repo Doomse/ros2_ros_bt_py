@@ -42,7 +42,6 @@ from ros_bt_py.helpers import BTNodeState
 
 @define_bt_node(
     NodeConfig(
-        version="0.1.0",
         inputs={
             "input_type": RosTopicType(),
             "in": ReferenceType(reference="input_type"),
@@ -96,7 +95,6 @@ class MessageToFields(Leaf):
 
 @define_bt_node(
     NodeConfig(
-        version="0.1.0",
         inputs={"output_type": RosTopicType()},
         outputs={"out": ReferenceType(reference="output_type")},
         max_children=0,

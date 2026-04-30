@@ -55,7 +55,6 @@ from ros_bt_py.node_config import NodeConfig
 
 @define_bt_node(
     NodeConfig(
-        version="0.1.0",
         inputs={
             "topic_name": RosTopicName(interface_id=1),
             "topic_type": RosTopicType(interface_id=1),
@@ -246,7 +245,6 @@ class TopicSubscriber(Leaf):
 
 @define_bt_node(
     NodeConfig(
-        version="0.1.0",
         inputs={
             "topic_name": RosTopicName(interface_id=1),
             "topic_type": RosTopicType(interface_id=1),
@@ -449,7 +447,6 @@ class TopicMemorySubscriber(Leaf):
 
 @define_bt_node(
     NodeConfig(
-        version="1.0.0",
         inputs={
             "topic_name": RosTopicName(interface_id=1),
             "topic_type": RosTopicType(interface_id=1),

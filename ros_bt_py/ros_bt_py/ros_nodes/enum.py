@@ -47,7 +47,6 @@ from ros_bt_py.ros_helpers import get_message_constant_fields
 
 @define_bt_node(
     NodeConfig(
-        version="0.1.0",
         inputs={"ros_message_type": RosComponentType()},
         outputs={},
         max_children=0,

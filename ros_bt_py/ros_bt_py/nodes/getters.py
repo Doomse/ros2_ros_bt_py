@@ -50,7 +50,6 @@ from ros_bt_py.node_config import NodeConfig
 
 @define_bt_node(
     NodeConfig(
-        version="0.1.0",
         inputs={"succeed_on_stale_data": BoolType(allow_dynamic=False)},
         outputs={},
         max_children=1,
@@ -92,7 +91,6 @@ class Getter(Decorator):
 
 @define_bt_node(
     NodeConfig(
-        version="0.1.0",
         inputs={
             "list_type": BuiltinOrRosType(),
             "index": IntType(min_value=0),
@@ -153,7 +151,6 @@ class GetListItem(Getter):
 
 @define_bt_node(
     NodeConfig(
-        version="0.1.0",
         inputs={
             "value_type": BuiltinOrRosType(),
             "key": StringType(),
@@ -207,7 +204,6 @@ class GetDictItem(Getter):
 
 @define_bt_node(
     NodeConfig(
-        version="0.1.0",
         inputs={
             "value_type": BuiltinOrRosType(),
             "keys": ListType(element_type=StringType()),
@@ -260,7 +256,6 @@ class GetMultipleDictItems(Getter):
 
 @define_bt_node(
     NodeConfig(
-        version="0.1.0",
         inputs={
             "object_type": RosTopicType(),
             "attr_type": BuiltinOrRosType(),

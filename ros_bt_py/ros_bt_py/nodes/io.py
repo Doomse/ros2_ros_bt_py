@@ -38,7 +38,6 @@ from ros_bt_py.node_config import NodeConfig
 
 @define_bt_node(
     NodeConfig(
-        version="0.1.0",
         inputs={
             "io_type": BuiltinOrRosType(),
             "in": ReferenceType("io_type"),

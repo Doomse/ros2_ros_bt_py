@@ -33,12 +33,11 @@ from ros_bt_py.helpers import BTNodeState
 from ros_bt_py.node import FlowControl, define_bt_node
 from ros_bt_py.node_config import NodeConfig
 
-from ros_bt_py.vendor.result import Result, Ok, Err, do
+from ros_bt_py.vendor.result import Result, Ok, Err
 
 
 @define_bt_node(
     NodeConfig(
-        version="0.1.0",
         inputs={"name": StringType(is_static=False)},
         outputs={},
         max_children=None,
@@ -109,7 +108,7 @@ class NameSwitch(FlowControl):
         return calculate_utility_fallback(self.children)
 
 
-@define_bt_node(NodeConfig(version="0.1.0", inputs={}, outputs={}, max_children=None))
+@define_bt_node(NodeConfig(inputs={}, outputs={}, max_children=None))
 class Fallback(FlowControl):
     """
     Flow control node that succeeds when any one of its children succeeds.
@@ -209,7 +208,7 @@ class Fallback(FlowControl):
         return calculate_utility_fallback(self.children)
 
 
-@define_bt_node(NodeConfig(version="0.1.0", inputs={}, outputs={}, max_children=None))
+@define_bt_node(NodeConfig(inputs={}, outputs={}, max_children=None))
 class MemoryFallback(FlowControl):
     """
     Flow control node that succeeds when any one of its children succeeds and has a memory.

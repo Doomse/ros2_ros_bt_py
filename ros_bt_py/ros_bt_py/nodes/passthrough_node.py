@@ -36,7 +36,6 @@ from ros_bt_py.node_config import NodeConfig
 
 @define_bt_node(
     NodeConfig(
-        version="0.1.0",
         inputs={
             "passthrough_type": BuiltinOrRosType(),
             "in": ReferenceType("passthrough_type", is_static=False),

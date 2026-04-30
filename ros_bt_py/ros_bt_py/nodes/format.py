@@ -76,7 +76,6 @@ myformatter = ExtendedFormatter()
 
 @define_bt_node(
     NodeConfig(
-        version="0.1.0",
         inputs={"a": StringType(), "b": StringType()},
         outputs={"formatted_string": StringType()},
         max_children=0,
@@ -111,7 +110,6 @@ class StringConcatenation(Leaf):
 
 @define_bt_node(
     NodeConfig(
-        version="0.1.0",
         inputs={"format_string": StringType(), "dict": DictType()},
         outputs={"formatted_string": StringType()},
         max_children=0,
@@ -162,7 +160,6 @@ class FormatString(Leaf):
 
 @define_bt_node(
     NodeConfig(
-        version="0.1.0",
         inputs={
             "format_strings": ListType(element_type=StringType()),
             "dict": DictType(),
@@ -216,7 +213,6 @@ class FormatStringList(Leaf):
 
 @define_bt_node(
     NodeConfig(
-        version="0.1.0",
         inputs={"path": StringType()},
         outputs={"filename": StringType(), "extension": StringType()},
         max_children=0,

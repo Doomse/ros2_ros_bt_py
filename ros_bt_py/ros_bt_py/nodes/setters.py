@@ -44,7 +44,6 @@ from ros_bt_py.node_config import NodeConfig
 
 @define_bt_node(
     NodeConfig(
-        version="0.1.0",
         inputs={
             "list_type": BuiltinOrRosType(),
             "list": ReferenceListType(reference="list_type"),
@@ -83,7 +82,6 @@ class AppendListItem(Leaf):
 
 @define_bt_node(
     NodeConfig(
-        version="0.1.0",
         inputs={
             "object_type": BuiltinOrRosType(),
             "attr_type": BuiltinOrRosType(),
@@ -129,7 +127,6 @@ class SetAttr(Leaf):
 
 @define_bt_node(
     NodeConfig(
-        version="0.1.0",
         inputs={
             "attr_type": BuiltinOrRosType(),
             "attr_name": StringType(),

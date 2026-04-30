@@ -43,7 +43,6 @@ from ros_bt_py.node_config import NodeConfig
 
 @define_bt_node(
     NodeConfig(
-        version="0.1.0",
         inputs={"list": ListType()},
         outputs={"length": IntType()},
         max_children=0,
@@ -74,7 +73,6 @@ class ListLength(Leaf):
 
 @define_bt_node(
     NodeConfig(
-        version="0.1.0",
         inputs={
             "element_type": BuiltinOrRosType(),
             "index": IntType(min_value=0),
@@ -119,7 +117,6 @@ class InsertInList(Leaf):
 
 @define_bt_node(
     NodeConfig(
-        version="0.1.0",
         inputs={
             "compare_type": BuiltinOrRosType(),
             "list": ReferenceListType(reference="compare_type"),
@@ -158,7 +155,6 @@ class IsInList(Leaf):
 
 @define_bt_node(
     NodeConfig(
-        version="0.1.0",
         inputs={
             "item_type": BuiltinOrRosType(),
             "list": ReferenceListType(reference="item_type"),

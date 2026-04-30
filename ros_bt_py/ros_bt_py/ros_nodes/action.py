@@ -491,7 +491,6 @@ class ActionForSetType(Leaf):
 
 @define_bt_node(
     NodeConfig(
-        version="0.1.0",
         inputs={
             "action_name": RosActionName(interface_id=1),
             "action_type": RosActionType(interface_id=1),

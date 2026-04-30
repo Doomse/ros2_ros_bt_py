@@ -36,7 +36,7 @@ from ros_bt_py.helpers import BTNodeState
 from ros_bt_py.exceptions import BehaviorTreeException
 
 
-@define_bt_node(NodeConfig(version="0.1.0", inputs={}, outputs={}, max_children=1))
+@define_bt_node(NodeConfig(inputs={}, outputs={}, max_children=1))
 class IgnoreFailure(Decorator):
     """
     Return SUCCEEDED regardless of whether the child actually succeeded.
@@ -77,7 +77,6 @@ class IgnoreFailure(Decorator):
 
 @define_bt_node(
     NodeConfig(
-        version="0.1.0",
         inputs={"running_is_success": BoolType(allow_dynamic=False)},
         outputs={},
         max_children=1,
@@ -127,7 +126,7 @@ class IgnoreRunning(Decorator):
         return Ok(BTNodeState.IDLE)
 
 
-@define_bt_node(NodeConfig(version="0.1.0", inputs={}, outputs={}, max_children=1))
+@define_bt_node(NodeConfig(inputs={}, outputs={}, max_children=1))
 class IgnoreSuccess(Decorator):
     """
     Return FAILURE regardless of whether the child actually failed.
@@ -166,7 +165,7 @@ class IgnoreSuccess(Decorator):
         return Ok(BTNodeState.IDLE)
 
 
-@define_bt_node(NodeConfig(version="0.1.0", inputs={}, outputs={}, max_children=1))
+@define_bt_node(NodeConfig(inputs={}, outputs={}, max_children=1))
 class UntilSuccess(Decorator):
     """
     Return RUNNING until the child node returns SUCCEEDED.
@@ -209,7 +208,7 @@ class UntilSuccess(Decorator):
         return Ok(BTNodeState.IDLE)
 
 
-@define_bt_node(NodeConfig(version="0.1.0", inputs={}, outputs={}, max_children=1))
+@define_bt_node(NodeConfig(inputs={}, outputs={}, max_children=1))
 class Inverter(Decorator):
     """
     Inverts the result of the child.
@@ -254,7 +253,6 @@ class Inverter(Decorator):
 
 @define_bt_node(
     NodeConfig(
-        version="0.1.0",
         inputs={"num_retries": IntType(min_value=0, allow_dynamic=False)},
         outputs={},
         max_children=1,
@@ -317,7 +315,6 @@ class Retry(Decorator):
 
 @define_bt_node(
     NodeConfig(
-        version="0.1.0",
         inputs={"num_repeats": IntType(min_value=1, allow_dynamic=False)},
         outputs={},
         max_children=1,
@@ -380,7 +377,6 @@ class Repeat(Decorator):
 
 @define_bt_node(
     NodeConfig(
-        version="0.1.0",
         inputs={"reset": BoolType(allow_static=False)},
         outputs={},
         max_children=1,
@@ -437,7 +433,7 @@ class RepeatNoAutoReset(Repeat):
         return Ok(BTNodeState.IDLE)
 
 
-@define_bt_node(NodeConfig(version="0.1.0", inputs={}, outputs={}, max_children=1))
+@define_bt_node(NodeConfig(inputs={}, outputs={}, max_children=1))
 class RepeatAlways(Decorator):
     """
     Repeats the child an infinite number of times.
@@ -485,7 +481,7 @@ class RepeatAlways(Decorator):
         return Ok(BTNodeState.IDLE)
 
 
-@define_bt_node(NodeConfig(version="0.1.0", inputs={}, outputs={}, max_children=1))
+@define_bt_node(NodeConfig(inputs={}, outputs={}, max_children=1))
 class RepeatUntilFail(Decorator):
     """
     Repeats the child an infinite number of times until it returns FAILED.
@@ -530,7 +526,7 @@ class RepeatUntilFail(Decorator):
         return Ok(BTNodeState.IDLE)
 
 
-@define_bt_node(NodeConfig(version="0.1.0", inputs={}, outputs={}, max_children=1))
+@define_bt_node(NodeConfig(inputs={}, outputs={}, max_children=1))
 class RepeatIfFail(Decorator):
     """
     Repeats the child an infinite number of times if it returns FAILED.
@@ -575,7 +571,7 @@ class RepeatIfFail(Decorator):
         return Ok(BTNodeState.IDLE)
 
 
-@define_bt_node(NodeConfig(version="0.1.0", inputs={}, outputs={}, max_children=1))
+@define_bt_node(NodeConfig(inputs={}, outputs={}, max_children=1))
 class Optional(Decorator):
     """
     Wraps a child that may not be able to execute.
@@ -642,7 +638,6 @@ class Optional(Decorator):
 
 @define_bt_node(
     NodeConfig(
-        version="0.1.0",
         inputs={"watch": StringType(allow_static=False)},
         outputs={},
         max_children=1,

@@ -141,7 +141,6 @@ class NodeConfig:
         inputs: dict[str, DataContainer],
         outputs: dict[str, DataContainer],
         max_children: Optional[int],
-        version: str = "",
         tags: Optional[list[str]] = None,
     ):
         """
@@ -167,7 +166,6 @@ class NodeConfig:
         self.inputs = inputs
         self.outputs = outputs
         self.max_children = max_children
-        self.version = version
 
         if tags is None:
             tags = []
@@ -197,8 +195,7 @@ class NodeConfig:
             "NodeConfig("
             f"inputs={self.inputs}, "
             f"outputs={self.outputs}, "
-            f"max_children={self.max_children}, "
-            f"version={self.version})"
+            f"max_children={self.max_children})"
         )
 
     def __eq__(self, other) -> bool:
@@ -208,7 +205,6 @@ class NodeConfig:
             self.inputs == other.inputs
             and self.outputs == other.outputs
             and self.max_children == other.max_children
-            and self.version == other.version
         )
 
     def __ne__(self, other) -> bool:
@@ -259,6 +255,5 @@ class NodeConfig:
             inputs=deepcopy(self.inputs),
             outputs=deepcopy(self.outputs),
             max_children=self.max_children,
-            version=self.version,
             tags=self.tags,
         )

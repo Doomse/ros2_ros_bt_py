@@ -25,7 +25,6 @@
 # CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
-from typing import assert_type, cast
 
 from ros_bt_py.vendor.result import Err, Result, Ok, do
 
@@ -42,7 +41,6 @@ from ros_bt_py.node_config import NodeConfig
 
 @define_bt_node(
     NodeConfig(
-        version="0.1.0",
         inputs={
             "compare_type": BuiltinOrRosType(),
             "a": ReferenceType(reference="compare_type", is_static=False),
@@ -83,7 +81,6 @@ class Compare(Leaf):
 
 @define_bt_node(
     NodeConfig(
-        version="0.1.0",
         inputs={
             "compare_type": BuiltinOrRosType(),
             "a": ReferenceType(reference="compare_type", is_static=False),
@@ -133,7 +130,6 @@ class CompareNewOnly(Leaf):
 
 @define_bt_node(
     NodeConfig(
-        version="0.1.0",
         inputs={
             "operand_type": BuiltinType(valid_types=[int, float]),
             "a": ReferenceType(reference="operand_type", is_static=False),

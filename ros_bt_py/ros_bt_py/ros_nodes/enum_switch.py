@@ -47,7 +47,6 @@ from ros_bt_py_interfaces.msg import NodeState
 
 @define_bt_node(
     NodeConfig(
-        version="0.1.0",
         inputs={"ros_message_type": RosComponentType(value=NodeState)},
         outputs={},
         max_children=None,

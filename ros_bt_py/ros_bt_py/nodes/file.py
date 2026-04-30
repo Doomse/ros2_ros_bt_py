@@ -82,7 +82,6 @@ def load_file(path):
 
 @define_bt_node(
     NodeConfig(
-        version="0.1.0",
         inputs={"file_path": PathType()},
         outputs={
             "load_success": BoolType(),
@@ -160,7 +159,6 @@ class YamlList(Leaf):
 
 @define_bt_node(
     NodeConfig(
-        version="0.1.0",
         inputs={"file_path": PathType()},
         outputs={
             "load_success": BoolType(),

@@ -37,7 +37,7 @@ from ros_bt_py.node_config import NodeConfig
 from ros_bt_py_interfaces.msg import UtilityBounds
 
 
-@define_bt_node(NodeConfig(version="0.1.0", inputs={}, outputs={}, max_children=None))
+@define_bt_node(NodeConfig(inputs={}, outputs={}, max_children=None))
 class Sequence(FlowControl):
     """
     Flow control node that succeeds when all children succeed.
@@ -140,7 +140,7 @@ class Sequence(FlowControl):
         return calculate_utility_sequence(self.children)
 
 
-@define_bt_node(NodeConfig(version="0.1.0", inputs={}, outputs={}, max_children=None))
+@define_bt_node(NodeConfig(inputs={}, outputs={}, max_children=None))
 class MemorySequence(FlowControl):
     """
     Flow control node that succeeds when all children succeed and has a memory.

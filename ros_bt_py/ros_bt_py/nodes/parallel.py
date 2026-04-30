@@ -40,7 +40,6 @@ from ros_bt_py.node_config import NodeConfig
 
 @define_bt_node(
     NodeConfig(
-        version="0.1.0",
         inputs={"needed_successes": IntType(min_value=1, allow_dynamic=False)},
         outputs={},
         max_children=None,
@@ -271,7 +270,6 @@ class Parallel(FlowControl):
 
 @define_bt_node(
     NodeConfig(
-        version="0.1.0",
         inputs={
             "needed_successes": IntType(min_value=1, allow_dynamic=False),
             "tolerate_failures": IntType(min_value=0, allow_dynamic=False),

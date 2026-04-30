@@ -73,7 +73,6 @@ def get_conversion(
 
 @define_bt_node(
     NodeConfig(
-        version="0.1.0",
         inputs={
             "input_type": BuiltinType(),
             "output_type": BuiltinType(),
@@ -170,7 +169,6 @@ BINARY_OPERATIONS = {
 
 @define_bt_node(
     NodeConfig(
-        version="0.1.0",
         inputs={
             "operand_type": BuiltinType(valid_types=[bool, int, float]),
             "operator": StringType(valid_values=list(BINARY_OPERATIONS.keys())),
@@ -269,7 +267,6 @@ UNARY_OPERATIONS = {
 
 @define_bt_node(
     NodeConfig(
-        version="0.1.0",
         inputs={
             "operand_type": BuiltinType(valid_types=[bool, int, float]),
             "operator": StringType(valid_values=list(UNARY_OPERATIONS.keys())),

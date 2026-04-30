@@ -34,9 +34,7 @@ from ros_bt_py.vendor.result import Result, Ok, Err
 
 from ros_bt_py_interfaces.msg import (
     UtilityBounds,
-    NodeStructure,
     TreeStructure,
-    NodeDataLocation,
 )
 from ros_bt_py_interfaces.srv import LoadTree
 
@@ -59,7 +57,6 @@ ROS_UUID = str
 
 @define_bt_node(
     NodeConfig(
-        version="0.2.0",
         inputs={
             "subtree_path": PathType(allow_dynamic=False),
         },

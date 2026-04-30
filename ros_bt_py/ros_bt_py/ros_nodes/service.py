@@ -53,7 +53,6 @@ from ros_bt_py_interfaces.msg import UtilityBounds
 
 @define_bt_node(
     NodeConfig(
-        version="0.1.0",
         inputs={
             "service_name": RosServiceName(interface_id=1),
             "wait_for_response_seconds": FloatType(allow_dynamic=False, value=10.2),
@@ -247,7 +246,6 @@ class ServiceBase(Leaf):
 
 @define_bt_node(
     NodeConfig(
-        version="0.1.0",
         inputs={"service_type": RosServiceType(interface_id=1)},
         outputs={},
         max_children=0,
@@ -339,7 +337,6 @@ class Service(ServiceBase):
 
 @define_bt_node(
     NodeConfig(
-        version="0.1.0",
         inputs={
             "service_name": RosServiceName(interface_id=1),
             "service_type": RosServiceType(interface_id=1),

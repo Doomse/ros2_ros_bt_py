@@ -45,7 +45,6 @@ from ros_bt_py.node_config import NodeConfig
 
 @define_bt_node(
     NodeConfig(
-        version="0.1.0",
         inputs={
             "param_name": StringType(),
             "param_type": BuiltinType(valid_types=[bool, int, float, bytes]),
@@ -104,7 +103,6 @@ class RosParam(Leaf):
 
 @define_bt_node(
     NodeConfig(
-        version="0.1.0",
         inputs={
             "param_name": StringType(),
             "param_type": BuiltinType(valid_types=[bool, int, float, bytes]),
