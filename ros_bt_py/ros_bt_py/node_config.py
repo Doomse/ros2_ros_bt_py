@@ -124,7 +124,7 @@ class NodeOutputMap(NodeDataMap):
                 return Ok(None)
 
     def set_multiple_values(self, **value_dict: Any) -> Result[None, NodeConfigError]:
-        for key, value in value_dict:
+        for key, value in value_dict.items():
             match self.set_value(key, value):
                 case Err(e):
                     return Err(e)
