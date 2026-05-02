@@ -307,7 +307,7 @@ class Service(ServiceBase):
         return Ok(inputs)
 
     def add_extra_outputs(self) -> Result[dict[str, DataContainer], NodeConfigError]:
-        match self.inputs.get_value("service_type"):
+        match self.get_service_type():
             case Err(e):
                 return Err(e)
             case Ok(t):

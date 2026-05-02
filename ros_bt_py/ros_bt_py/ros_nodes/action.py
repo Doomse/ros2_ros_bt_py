@@ -493,15 +493,13 @@ class ActionForSetType(Leaf):
     NodeConfig(
         inputs={
             "action_name": RosActionName(interface_id=1),
-            "action_type": RosActionType(interface_id=1),
             "timeout_seconds": FloatType(allow_dynamic=False, value=30.2),
-            "fail_if_not_available": BoolType(allow_dynamic=False),
         },
         outputs={},
         max_children=0,
     )
 )
-class Action(Leaf):
+class ActionBase(Leaf):
     """
     Connect to a ROS action and sends the supplied goal.
 
@@ -515,62 +513,43 @@ class Action(Leaf):
     re-sent on the next tick.
     """
 
-    _action_name: str
-    _goal_type: type
-    _feedback_type: type
-    _result_type: type
+    _action_type: type
     _action_client: Optional[ActionClient] = None
     _feedback = None
-
     _internal_state: ActionStates
 
-    def add_extra_inputs(self) -> Result[dict[str, DataContainer], NodeConfigError]:
-        match self.inputs.get_value("action_type"):
-            case Err(e):
-                return Err(e)
-            case Ok(t):
-                action_type = t
-        self._action_type = action_type
-        self._goal_type = action_type.Goal
-        inputs = {}
-        for (
-            field_name,
-            field_type,
-        ) in self._goal_type.get_fields_and_field_types().items():
-            match get_message_field_io_type(field_type):
-                case Err(e):
-                    return Err(NodeConfigError(e))
-                case Ok(t):
-                    inputs[field_name] = t
-        return Ok(inputs)
+    # Returns the action goal message that should be send to the server.
+    @abc.abstractmethod
+    def get_goal(self) -> Result[Any, BehaviorTreeException]:
+        raise NotImplementedError
 
-    def add_extra_outputs(self) -> Result[dict[str, DataContainer], NodeConfigError]:
-        match self.inputs.get_value("action_type"):
-            case Err(e):
-                return Err(e)
-            case Ok(t):
-                action_type = t
-        self._result_type = action_type.Result
-        self._feedback_type = action_type.Feedback
-        combined_fields: dict[str, str] = {}
-        for (
-            field_name,
-            field_type,
-        ) in self._result_type.get_fields_and_field_types().items():
-            combined_fields[f"result.{field_name}"] = field_type
-        for (
-            field_name,
-            field_type,
-        ) in self._result_type.get_fields_and_field_types().items():
-            combined_fields[f"feedback.{field_name}"] = field_type
-        outputs = {}
-        for field_name, field_type in combined_fields:
-            match get_message_field_io_type(field_type):
-                case Err(e):
-                    return Err(NodeConfigError(e))
-                case Ok(t):
-                    outputs[field_name] = t
-        return Ok(outputs)
+    # Property for the list of goal fields that have to be monitored for updates
+    @property
+    @abc.abstractmethod
+    def goal_fields(self) -> list[str]:
+        raise NotImplementedError
+
+    # Sets the outputs relative to the given result.
+    # Should return the desired node state as `Ok(...)` or an `Err(...)` with an exception.
+    @abc.abstractmethod
+    def set_result_outputs(
+        self, result: Any
+    ) -> Result[BTNodeState, BehaviorTreeException]:
+        raise NotImplementedError
+
+    # Sets the outputs relative to the given feedback.
+    # Should return `Ok(None)` or an `Err(...)` with an exception.
+    # Feedback doesn't affect the node state
+    @abc.abstractmethod
+    def set_feedback_outputs(
+        self, feedback: Any
+    ) -> Result[None, BehaviorTreeException]:
+        raise NotImplementedError
+
+    # Get the action type
+    @abc.abstractmethod
+    def get_action_type(self) -> Result[type, NodeConfigError]:
+        raise NotImplementedError
 
     def _do_setup(self) -> Result[BTNodeState, BehaviorTreeException]:
         if not self.has_ros_node:
@@ -584,11 +563,16 @@ class Action(Leaf):
             case Ok(f):
                 self._timeout_seconds = f
 
+        match self.get_action_type():
+            case Err(e):
+                return Err(e)
+            case Ok(t):
+                self._action_type = t
+
         self._lock = Lock()
         self._feedback = None
 
         self._internal_state = ActionStates.IDLE
-        self._finish_state = BTNodeState.SUCCEEDED
 
         self._new_goal_request_future = None
         self._running_goal_handle = None
@@ -596,17 +580,8 @@ class Action(Leaf):
         self._cancel_goal_future = None
 
         self._action_client = None
-        self._shutdown: bool = False
 
         self._last_goal_time: Optional[Time] = None
-
-        self._goal_fields = list(self._goal_type.get_fields_and_field_types().keys())
-        self._result_fields = list(
-            self._result_type.get_fields_and_field_types().keys()
-        )
-        self._feedback_fields = list(
-            self._feedback_type.get_fields_and_field_types().keys()
-        )
 
         return Ok(BTNodeState.IDLE)
 
@@ -627,39 +602,21 @@ class Action(Leaf):
                 self._running_goal_handle = None
                 self._running_goal_future = None
                 self._internal_state = ActionStates.FINISHED
-                self._finish_state = BTNodeState.FAILED
-
                 self.loginfo("Action result is none, action call must have failed!")
-                return Ok(self._finish_state)
-
-            try:
-                result_values = {
-                    key: getattr(result.result, key) for key in self._result_fields
-                }
-            except AttributeError as e:
-                return Err(BehaviorTreeException(str(e)))
-            match self.outputs.set_multiple_values(**result_values):
-                case Err(e):
-                    return Err(e)
-                case Ok(None):
-                    pass
+                return Ok(BTNodeState.FAILED)
 
             self._running_goal_handle = None
             self._running_goal_future = None
             self._internal_state = ActionStates.FINISHED
-            self._finish_state = BTNodeState.SUCCEEDED
-
             self.loginfo("Action succeeded, publishing result!")
-            return Ok(self._finish_state)
+            return self.set_result_outputs(result.result)
 
         if self._running_goal_future.cancelled():
             self._running_goal_handle = None
             self._running_goal_future = None
             self._internal_state = ActionStates.FINISHED
-            self._finish_state = BTNodeState.FAILED
-
             self.logwarn("Action execution was cancelled by the remote server!")
-            return Ok(self._finish_state)
+            return Ok(BTNodeState.FAILED)
 
         seconds_running = (
             self.ros_node.get_clock().now() - self._running_goal_start_time
@@ -677,19 +634,8 @@ class Action(Leaf):
 
         if self._feedback is not None:
             with self._lock:
-                try:
-                    feedback_values = {
-                        key: getattr(self._feedback.feedback, key)
-                        for key in self._result_fields
-                    }
-                    self._feedback = None
-                except AttributeError as e:
-                    return Err(BehaviorTreeException(str(e)))
-            match self.outputs.set_multiple_values(**feedback_values):
-                case Err(e):
-                    return Err(e)
-                case Ok(None):
-                    pass
+                self.set_feedback_outputs(self._feedback.feedback)
+                self._feedback = None
 
         return Ok(BTNodeState.RUNNING)
 
@@ -729,8 +675,7 @@ class Action(Leaf):
             self._running_goal_future = None
 
             self._internal_state = ActionStates.FINISHED
-            self._finish_state = state
-            return Ok(self._finish_state)
+            return Ok(state)
         if self._cancel_goal_future.cancelled():
             self.logdebug("Goal cancellation was cancelled!")
 
@@ -739,8 +684,7 @@ class Action(Leaf):
             self._running_goal_future = None
 
             self._internal_state = ActionStates.FINISHED
-            self._finish_state = BTNodeState.FAILED
-            return Ok(self._finish_state)
+            return Ok(BTNodeState.FAILED)
         return Ok(BTNodeState.RUNNING)
 
     def _do_tick_send_new_goal(self) -> Result[BTNodeState, BehaviorTreeException]:
@@ -781,7 +725,7 @@ class Action(Leaf):
             self._running_goal_future = self._running_goal_handle.get_result_async()
 
             self._internal_state = ActionStates.WAITING_FOR_ACTION_COMPLETE
-            return Ok(BTNodeState.SUCCEEDED)
+            return Ok(BTNodeState.RUNNING)
 
         if self._new_goal_request_future.cancelled():
             self.logwarn("Request for a new goal was cancelled!")
@@ -794,23 +738,22 @@ class Action(Leaf):
         return Ok(BTNodeState.RUNNING)
 
     def _do_tick(self) -> Result[BTNodeState, BehaviorTreeException]:
-        match self.inputs.any_updated("action_name", *self._goal_fields):
+        match self.inputs.any_updated("action_name", *self.goal_fields):
             case Err(e):
                 return Err(e)
             case Ok(b):
                 updated = b
         # If the current state is idle, this is the first tick after setup, reset or untick
-        if updated or self.state == BTNodeState.IDLE:
-            self._input_goal = self._goal_type()
-            for key in self._goal_fields:
-                match self.inputs.get_value(key):
-                    case Err(e):
-                        return Err(e)
-                    case Ok(v):
-                        setattr(self._input_goal, key, v)
+        if updated:
+            match self.get_goal():
+                case Err(e):
+                    return Err(e)
+                case Ok(g):
+                    self._input_goal = g
         if updated and self._internal_state not in [
             ActionStates.IDLE,
             ActionStates.FINISHED,
+            ActionStates.WAITING_FOR_GOAL_CANCELLATION,
         ]:
             self._internal_state = ActionStates.REQUEST_GOAL_CANCELLATION
 
@@ -851,7 +794,7 @@ class Action(Leaf):
 
     def _do_tick_finished(self) -> Result[BTNodeState, BehaviorTreeException]:
         if self._input_goal is None:
-            return Ok(self._finish_state)
+            return Ok(self.state)
         else:
             if self._action_client is not None:
                 self._action_client.destroy()
@@ -909,3 +852,105 @@ class Action(Leaf):
                 has_upper_bound_failure=True,
             )
         )
+
+
+@define_bt_node(
+    NodeConfig(
+        inputs={"action_type": RosActionType(interface_id=1)},
+        outputs={},
+        max_children=0,
+    )
+)
+class Action(ActionBase):
+
+    def get_goal(self):
+        goal = self._goal_type()
+        for key in self._goal_fields:
+            match self.inputs.get_value(key):
+                case Err(e):
+                    return Err(e)
+                case Ok(v):
+                    setattr(goal, key, v)
+        return Ok(goal)
+
+    @property
+    def goal_fields(self):
+        return self._goal_fields
+
+    def set_result_outputs(self, result):
+        try:
+            result_values = {key: getattr(result, key) for key in self._result_fields}
+        except AttributeError as e:
+            return Err(BehaviorTreeException(str(e)))
+        return self.outputs.set_multiple_values(**result_values).map(
+            lambda _: BTNodeState.SUCCEEDED
+        )
+
+    def set_feedback_outputs(self, feedback):
+        try:
+            feedback_values = {
+                key: getattr(feedback, key) for key in self._feedback_fields
+            }
+        except AttributeError as e:
+            return Err(BehaviorTreeException(str(e)))
+        return self.outputs.set_multiple_values(**feedback_values)
+
+    def get_action_type(self):
+        return self.inputs.get_value_as("action_type", type)
+
+    def add_extra_inputs(self) -> Result[dict[str, DataContainer], NodeConfigError]:
+        match self.get_action_type():
+            case Err(e):
+                return Err(e)
+            case Ok(t):
+                action_type = t
+        self._goal_type = action_type.Goal
+        inputs = {}
+        for (
+            field_name,
+            field_type,
+        ) in self._goal_type.get_fields_and_field_types().items():
+            match get_message_field_io_type(field_type):
+                case Err(e):
+                    return Err(NodeConfigError(e))
+                case Ok(t):
+                    inputs[field_name] = t
+        return Ok(inputs)
+
+    def add_extra_outputs(self) -> Result[dict[str, DataContainer], NodeConfigError]:
+        match self.get_action_type():
+            case Err(e):
+                return Err(e)
+            case Ok(t):
+                action_type = t
+        self._result_type = action_type.Result
+        self._feedback_type = action_type.Feedback
+        combined_fields: dict[str, str] = {}
+        for (
+            field_name,
+            field_type,
+        ) in self._result_type.get_fields_and_field_types().items():
+            combined_fields[f"result.{field_name}"] = field_type
+        for (
+            field_name,
+            field_type,
+        ) in self._result_type.get_fields_and_field_types().items():
+            combined_fields[f"feedback.{field_name}"] = field_type
+        outputs = {}
+        for field_name, field_type in combined_fields:
+            match get_message_field_io_type(field_type):
+                case Err(e):
+                    return Err(NodeConfigError(e))
+                case Ok(t):
+                    outputs[field_name] = t
+        return Ok(outputs)
+
+    def _do_setup(self):
+        self._goal_fields = list(self._goal_type.get_fields_and_field_types().keys())
+        self._result_fields = list(
+            self._result_type.get_fields_and_field_types().keys()
+        )
+        self._feedback_fields = list(
+            self._feedback_type.get_fields_and_field_types().keys()
+        )
+        return super()._do_setup()
