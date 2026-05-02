@@ -33,11 +33,12 @@ from ros_bt_py.vendor.result import Result, Ok, Err
 
 from ros_bt_py.data_types import (
     BoolType,
-    DictType,
+    BuiltinType,
     IntType,
-    ListType,
     PathType,
     StringType,
+    ReferenceListType,
+    ReferenceDictType,
 )
 from ros_bt_py.exceptions import BehaviorTreeException
 from ros_bt_py.helpers import BTNodeState
@@ -82,11 +83,14 @@ def load_file(path):
 
 @define_bt_node(
     NodeConfig(
-        inputs={"file_path": PathType()},
+        inputs={
+            "file_path": PathType(),
+            "element_type": BuiltinType(),
+        },
         outputs={
             "load_success": BoolType(),
             "load_error_msg": StringType(),
-            "content": ListType(),
+            "content": ReferenceListType(reference="element_type"),
             "line_count": IntType(),
         },
         max_children=0,
@@ -159,11 +163,14 @@ class YamlList(Leaf):
 
 @define_bt_node(
     NodeConfig(
-        inputs={"file_path": PathType()},
+        inputs={
+            "file_path": PathType(),
+            "element_type": BuiltinType(),
+        },
         outputs={
             "load_success": BoolType(),
             "load_error_msg": StringType(),
-            "content": DictType(),
+            "content": ReferenceDictType(reference="element_type"),
         },
         max_children=0,
     )

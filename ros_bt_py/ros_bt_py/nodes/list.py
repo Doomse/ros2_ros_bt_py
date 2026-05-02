@@ -31,7 +31,6 @@ from ros_bt_py.vendor.result import Result, Ok, Err, do
 from ros_bt_py.data_types import (
     BuiltinOrRosType,
     IntType,
-    ListType,
     ReferenceListType,
     ReferenceType,
 )
@@ -43,7 +42,10 @@ from ros_bt_py.node_config import NodeConfig
 
 @define_bt_node(
     NodeConfig(
-        inputs={"list": ListType()},
+        inputs={
+            "element_type": BuiltinOrRosType(),
+            "list": ReferenceListType(reference="element_type"),
+        },
         outputs={"length": IntType()},
         max_children=0,
     )
