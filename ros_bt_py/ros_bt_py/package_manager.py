@@ -389,7 +389,6 @@ class PackageManager(object):
                     DocumentedNode(
                         module=module,
                         node_class=class_name,
-                        version=node_class._node_config.version,
                         max_children=max_children,
                         inputs=[
                             NodeIO(

@@ -1129,7 +1129,6 @@ class Node(abc.ABC):
         return NodeStructure(
             module=node_type.__module__,
             node_class=node_type.__name__,
-            version=self.node_config.version,
             name=self.name,
             node_id=uuid_to_ros(self.node_id),
             child_ids=[uuid_to_ros(child.node_id) for child in self.children],
