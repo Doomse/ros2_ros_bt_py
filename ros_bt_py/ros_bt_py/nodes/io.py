@@ -29,7 +29,7 @@ import abc
 
 from ros_bt_py.vendor.result import Result, Ok, Err
 
-from ros_bt_py.data_types import BuiltinOrRosType, ReferenceType
+from ros_bt_py.data_types import GenericType, ReferenceType
 from ros_bt_py.exceptions import BehaviorTreeException
 from ros_bt_py.helpers import BTNodeState
 from ros_bt_py.node import Leaf, define_bt_node
@@ -39,7 +39,7 @@ from ros_bt_py.node_config import NodeConfig
 @define_bt_node(
     NodeConfig(
         inputs={
-            "io_type": BuiltinOrRosType(),
+            "io_type": GenericType(),
             "in": ReferenceType("io_type"),
             "default": ReferenceType("io_type"),
         },

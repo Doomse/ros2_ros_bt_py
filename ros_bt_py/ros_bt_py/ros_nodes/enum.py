@@ -33,7 +33,7 @@ from ros_bt_py.vendor.result import Result, Ok, Err
 from ros_bt_py.data_types import (
     DataContainer,
     RosComponentType,
-    BUILTIN_TYPE_MAP,
+    GENERIC_TYPE_MAP,
     get_iotype_for_dict,
 )
 from ros_bt_py.exceptions import BehaviorTreeException, NodeConfigError
@@ -75,9 +75,9 @@ class EnumFields(Leaf):
         node_outputs = {}
         for field in self._constants:
             field_type = type(getattr(self._message_class, field))
-            if field not in BUILTIN_TYPE_MAP.keys():
+            if field not in GENERIC_TYPE_MAP.keys():
                 return Err(NodeConfigError(f"Field {field} has an incompatible type"))
-            match get_iotype_for_dict(BUILTIN_TYPE_MAP[field_type]):
+            match get_iotype_for_dict(GENERIC_TYPE_MAP[field_type]):
                 case Err(e):
                     return Err(NodeConfigError(e))
                 case Ok(c):

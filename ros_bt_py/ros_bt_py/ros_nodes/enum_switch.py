@@ -31,7 +31,7 @@ from ros_bt_py.vendor.result import Result, Ok, Err, do
 from ros_bt_py.data_types import (
     DataContainer,
     RosComponentType,
-    BUILTIN_TYPE_MAP,
+    GENERIC_TYPE_MAP,
     get_iotype_for_dict,
 )
 from ros_bt_py.exceptions import BehaviorTreeException, NodeConfigError
@@ -82,11 +82,11 @@ class EnumSwitch(FlowControl):
                 )
             )
 
-        if pchild_types[0] not in BUILTIN_TYPE_MAP.keys():
+        if pchild_types[0] not in GENERIC_TYPE_MAP.keys():
             return Err(
                 NodeConfigError(f"Type {pchild_types[0]} is not a valid IO type")
             )
-        match get_iotype_for_dict(BUILTIN_TYPE_MAP[pchild_types[0]]):
+        match get_iotype_for_dict(GENERIC_TYPE_MAP[pchild_types[0]]):
             case Err(e):
                 return Err(NodeConfigError(e))
             case Ok(c):

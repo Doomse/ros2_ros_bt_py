@@ -30,11 +30,12 @@ from copy import deepcopy
 from ros_bt_py.vendor.result import Result, Ok, Err, do
 
 from ros_bt_py.data_types import (
-    BuiltinOrRosType,
+    GenericType,
     ReferenceListType,
     ReferenceType,
     ReferenceDictType,
     StringType,
+    RosTopicType,
 )
 from ros_bt_py.exceptions import BehaviorTreeException
 from ros_bt_py.helpers import rsetattr, BTNodeState
@@ -45,7 +46,7 @@ from ros_bt_py.node_config import NodeConfig
 @define_bt_node(
     NodeConfig(
         inputs={
-            "list_type": BuiltinOrRosType(),
+            "list_type": GenericType(),
             "list": ReferenceListType(reference="list_type"),
             "value": ReferenceType(reference="list_type"),
         },
@@ -83,8 +84,8 @@ class AppendListItem(Leaf):
 @define_bt_node(
     NodeConfig(
         inputs={
-            "object_type": BuiltinOrRosType(),
-            "attr_type": BuiltinOrRosType(),
+            "object_type": RosTopicType(),
+            "attr_type": GenericType(),
             "attr_name": StringType(),
             "object": ReferenceType(reference="object_type"),
             "attr_value": ReferenceType(reference="attr_type"),
@@ -128,7 +129,7 @@ class SetAttr(Leaf):
 @define_bt_node(
     NodeConfig(
         inputs={
-            "attr_type": BuiltinOrRosType(),
+            "attr_type": GenericType(),
             "attr_name": StringType(),
             "object": ReferenceDictType(reference="attr_type"),
             "attr_value": ReferenceType(reference="attr_type"),

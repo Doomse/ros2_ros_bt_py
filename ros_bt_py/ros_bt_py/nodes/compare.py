@@ -29,8 +29,7 @@
 from ros_bt_py.vendor.result import Err, Result, Ok, do
 
 from ros_bt_py.data_types import (
-    BuiltinOrRosType,
-    BuiltinType,
+    GenericType,
     ReferenceType,
 )
 from ros_bt_py.exceptions import BehaviorTreeException
@@ -42,7 +41,7 @@ from ros_bt_py.node_config import NodeConfig
 @define_bt_node(
     NodeConfig(
         inputs={
-            "compare_type": BuiltinOrRosType(),
+            "compare_type": GenericType(),
             "a": ReferenceType(reference="compare_type", is_static=False),
             "b": ReferenceType(reference="compare_type"),
         },
@@ -82,7 +81,7 @@ class Compare(Leaf):
 @define_bt_node(
     NodeConfig(
         inputs={
-            "compare_type": BuiltinOrRosType(),
+            "compare_type": GenericType(),
             "a": ReferenceType(reference="compare_type", is_static=False),
             "b": ReferenceType(reference="compare_type"),
         },
@@ -131,7 +130,7 @@ class CompareNewOnly(Leaf):
 @define_bt_node(
     NodeConfig(
         inputs={
-            "operand_type": BuiltinType(valid_types=[int, float]),
+            "operand_type": GenericType(valid_types=[int, float]),
             "a": ReferenceType(reference="operand_type", is_static=False),
             "b": ReferenceType(reference="operand_type"),
         },

@@ -27,7 +27,7 @@
 # POSSIBILITY OF SUCH DAMAGE.
 from ros_bt_py.vendor.result import Result, Ok, Err
 
-from ros_bt_py.data_types import BuiltinOrRosType, ReferenceType
+from ros_bt_py.data_types import GenericType, ReferenceType
 from ros_bt_py.exceptions import BehaviorTreeException
 from ros_bt_py.helpers import BTNodeState
 from ros_bt_py.node import Leaf, define_bt_node
@@ -37,7 +37,7 @@ from ros_bt_py.node_config import NodeConfig
 @define_bt_node(
     NodeConfig(
         inputs={
-            "constant_type": BuiltinOrRosType(),
+            "constant_type": GenericType(),
             "constant_value": ReferenceType(
                 reference="constant_type",
                 allow_dynamic=False,

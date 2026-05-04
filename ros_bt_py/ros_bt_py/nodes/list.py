@@ -29,7 +29,7 @@
 from ros_bt_py.vendor.result import Result, Ok, Err, do
 
 from ros_bt_py.data_types import (
-    BuiltinOrRosType,
+    GenericType,
     IntType,
     ReferenceListType,
     ReferenceType,
@@ -43,7 +43,7 @@ from ros_bt_py.node_config import NodeConfig
 @define_bt_node(
     NodeConfig(
         inputs={
-            "element_type": BuiltinOrRosType(),
+            "element_type": GenericType(),
             "list": ReferenceListType(reference="element_type"),
         },
         outputs={"length": IntType()},
@@ -76,7 +76,7 @@ class ListLength(Leaf):
 @define_bt_node(
     NodeConfig(
         inputs={
-            "element_type": BuiltinOrRosType(),
+            "element_type": GenericType(),
             "index": IntType(min_value=0),
             "list": ReferenceListType(reference="element_type"),
             "element": ReferenceType(reference="element_type"),
@@ -120,7 +120,7 @@ class InsertInList(Leaf):
 @define_bt_node(
     NodeConfig(
         inputs={
-            "compare_type": BuiltinOrRosType(),
+            "compare_type": GenericType(),
             "list": ReferenceListType(reference="compare_type"),
             "in": ReferenceType(reference="compare_type"),
         },
@@ -158,7 +158,7 @@ class IsInList(Leaf):
 @define_bt_node(
     NodeConfig(
         inputs={
-            "item_type": BuiltinOrRosType(),
+            "item_type": GenericType(),
             "list": ReferenceListType(reference="item_type"),
         },
         outputs={"list_item": ReferenceType(reference="item_type")},

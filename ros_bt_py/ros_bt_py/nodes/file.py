@@ -33,7 +33,7 @@ from ros_bt_py.vendor.result import Result, Ok, Err
 
 from ros_bt_py.data_types import (
     BoolType,
-    BuiltinType,
+    GenericType,
     IntType,
     PathType,
     StringType,
@@ -85,7 +85,9 @@ def load_file(path):
     NodeConfig(
         inputs={
             "file_path": PathType(),
-            "element_type": BuiltinType(),
+            "element_type": GenericType(
+                valid_types=[bool, int, float, str, list, dict]
+            ),
         },
         outputs={
             "load_success": BoolType(),
@@ -165,7 +167,9 @@ class YamlList(Leaf):
     NodeConfig(
         inputs={
             "file_path": PathType(),
-            "element_type": BuiltinType(),
+            "element_type": GenericType(
+                valid_types=[bool, int, float, str, list, dict]
+            ),
         },
         outputs={
             "load_success": BoolType(),

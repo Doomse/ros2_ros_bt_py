@@ -34,11 +34,9 @@ from typeguard import typechecked
 from ros_bt_py.vendor.result import Result, Ok, Err, do
 
 from ros_bt_py.data_types import (
-    BuiltinType,
+    GenericType,
     ReferenceType,
     StringType,
-    BoolType,
-    NumericContainer,
 )
 from ros_bt_py.exceptions import BehaviorTreeException
 from ros_bt_py.helpers import BTNodeState
@@ -74,8 +72,8 @@ def get_conversion(
 @define_bt_node(
     NodeConfig(
         inputs={
-            "input_type": BuiltinType(),
-            "output_type": BuiltinType(),
+            "input_type": GenericType(),
+            "output_type": GenericType(),
             "in": ReferenceType("input_type"),
         },
         outputs={"out": ReferenceType("output_type")},
@@ -170,7 +168,7 @@ BINARY_OPERATIONS = {
 @define_bt_node(
     NodeConfig(
         inputs={
-            "operand_type": BuiltinType(valid_types=[bool, int, float]),
+            "operand_type": GenericType(valid_types=[bool, int, float]),
             "operator": StringType(valid_values=list(BINARY_OPERATIONS.keys())),
             "a": ReferenceType(reference="operand_type"),
             "b": ReferenceType(reference="operand_type"),
@@ -268,7 +266,7 @@ UNARY_OPERATIONS = {
 @define_bt_node(
     NodeConfig(
         inputs={
-            "operand_type": BuiltinType(valid_types=[bool, int, float]),
+            "operand_type": GenericType(valid_types=[bool, int, float]),
             "operator": StringType(valid_values=list(UNARY_OPERATIONS.keys())),
             "in": ReferenceType(reference="operand_type"),
         },

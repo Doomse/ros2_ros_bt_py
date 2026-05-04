@@ -33,7 +33,7 @@ from ros_bt_py.vendor.result import Result, Ok, Err, do
 
 from ros_bt_py.data_types import (
     BoolType,
-    BuiltinOrRosType,
+    GenericType,
     IntType,
     ListType,
     ReferenceDictType,
@@ -92,7 +92,7 @@ class Getter(Decorator):
 @define_bt_node(
     NodeConfig(
         inputs={
-            "list_type": BuiltinOrRosType(),
+            "list_type": GenericType(),
             "index": IntType(min_value=0),
             "list": ReferenceListType(reference="list_type"),
         },
@@ -152,7 +152,7 @@ class GetListItem(Getter):
 @define_bt_node(
     NodeConfig(
         inputs={
-            "value_type": BuiltinOrRosType(),
+            "value_type": GenericType(),
             "key": StringType(),
             "dict": ReferenceDictType(reference="value_type"),
         },
@@ -205,7 +205,7 @@ class GetDictItem(Getter):
 @define_bt_node(
     NodeConfig(
         inputs={
-            "value_type": BuiltinOrRosType(),
+            "value_type": GenericType(),
             "keys": ListType(element_type=StringType()),
             "dict": ReferenceDictType(reference="value_type"),
         },
@@ -258,7 +258,7 @@ class GetMultipleDictItems(Getter):
     NodeConfig(
         inputs={
             "object_type": RosTopicType(),
-            "attr_type": BuiltinOrRosType(),
+            "attr_type": GenericType(),
             "attr_name": StringType(),
             "object": ReferenceType(reference="object_type"),
         },
